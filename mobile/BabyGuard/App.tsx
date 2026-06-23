@@ -1156,13 +1156,52 @@ export default function App() {
     };
   }, [chartSamples]);
 
+  // Pulisce i campioni ECG grezzi della maglietta PRIMA di filtrarli:
+  // rimuove il codice di clipping di fondo scala dell'ADC (1638400 = 0x190000), i valori
+  // non fisici (<= 0) e gli spike isolati, sostituendoli con interpolazione lineare sui
+  // campioni validi adiacenti. Senza questo passaggio gli artefatti generano transienti
+  // enormi nel passa-alto e gonfiano la normalizzazione, rendendo le onde PQRST invisibili.
+  const sanitizeEcg = (raw: number[], clip = 1600000) => {
+    const n = raw.length;
+    const v = raw.map(x => (Number.isFinite(x) ? x : NaN));
+    const valid = v.map(x => Number.isFinite(x) && x > 0 && x < clip);
+
+    // 1) interpola linearmente i campioni non validi (clipping / fuori range / NaN)
+    for (let i = 0; i < n; i++) {
+      if (valid[i]) continue;
+      let a = i - 1; while (a >= 0 && !valid[a]) a--;
+      let b = i + 1; while (b < n && !valid[b]) b++;
+      if (a < 0 && b >= n) v[i] = 0;
+      else if (a < 0) v[i] = v[b];
+      else if (b >= n) v[i] = v[a];
+      else v[i] = v[a] + ((v[b] - v[a]) * (i - a)) / (b - a);
+    }
+
+    // 2) despike residuo con filtro di Hampel (mediana mobile, finestra 7)
+    const k = 3;
+    const out = v.slice();
+    for (let i = 0; i < n; i++) {
+      const win = v.slice(Math.max(0, i - k), Math.min(n, i + k + 1)).sort((p, q) => p - q);
+      const med = win[Math.floor(win.length / 2)];
+      const mad = win.map(x => Math.abs(x - med)).sort((p, q) => p - q)[Math.floor(win.length / 2)] + 1e-9;
+      if (Math.abs(v[i] - med) > 4 * 1.4826 * mad) out[i] = med;
+    }
+    return out;
+  };
+
   // Filtro per i campioni ECG in tempo reale (rimuove il baseline wander, applica Notch 50Hz e smussa il rumore)
   const filterEcgSamples = (rawSamples: number[]) => {
     if (!rawSamples || rawSamples.length === 0) return [];
-    
-    // Calcola la media per rimuovere l'offset DC ed evitare enormi transienti iniziali
-    const mean = rawSamples.reduce((sum, v) => sum + v, 0) / rawSamples.length;
-    const zeroMeanSamples = rawSamples.map(v => v - mean);
+
+    // 0. Declip + despike degli artefatti dell'ADC (clipping/spike) prima di ogni filtro
+    const cleaned = sanitizeEcg(rawSamples);
+    if (!cleaned.length) return [];
+
+    // Rimuove l'offset DC usando la MEDIANA (robusta rispetto agli artefatti residui,
+    // a differenza della media che verrebbe falsata dai valori di clipping)
+    const sortedDc = [...cleaned].sort((a, b) => a - b);
+    const median = sortedDc[Math.floor(sortedDc.length / 2)];
+    const zeroMeanSamples = cleaned.map(v => v - median);
     
     // 1. Rimuove la componente continua (baseline wander) usando un filtro IIR passa-alto
     // y_hp[n] = x[n] - x[n-1] + 0.985 * y_hp[n-1]
@@ -1229,11 +1268,18 @@ export default function App() {
   const ecgSamplesNormalized = useMemo(() => {
     const filtered = filterEcgSamples(rawEcgBuffer);
     if (!filtered.length) return [];
-    
-    const maxVal = Math.max(...filtered.map(Math.abs));
-    if (maxVal > 0) {
-      // Normalizzazione tra -1.0 e 1.0 per una scala stabile a schermo
-      return filtered.map(v => Number((v / maxVal).toFixed(3)));
+
+    // Normalizzazione ROBUSTA: usa il 98° percentile del valore assoluto invece del massimo
+    // assoluto, così un eventuale transiente residuo non schiaccia l'intero tracciato.
+    // L'asse resta centrato sullo zero e le onde PQRST/ i picchi R restano ben visibili.
+    const absSorted = filtered.map(Math.abs).sort((a, b) => a - b);
+    const scale = absSorted[Math.floor(0.98 * (absSorted.length - 1))] || 0;
+    if (scale > 0) {
+      return filtered.map(v => {
+        let n = v / scale;
+        if (n > 1.2) n = 1.2; else if (n < -1.2) n = -1.2; // clamp leggero per stabilità dell'asse
+        return Number(n.toFixed(3));
+      });
     }
     return filtered;
   }, [rawEcgBuffer]);
@@ -2793,4 +2839,4 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '500',
   },
-});
+})
