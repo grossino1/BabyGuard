@@ -41,9 +41,18 @@ services:
     container_name: grafana
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./grafana/data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_AUTH_PROXY_ENABLED=true
+      - GF_AUTH_PROXY_HEADER_NAME=X-WEBAUTH-USER
+      - GF_AUTH_PROXY_HEADER_PROPERTY=username
+      - GF_AUTH_PROXY_AUTO_SIGN_UP=true
+      - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - influxdb
 
@@ -82,6 +91,7 @@ services:
       - EXPO_PUBLIC_API_URL= "http://${HOST_IP}:${API_PORT}"
       - EXPO_PUBLIC_WS_URL= "ws://${HOST_IP}:${API_PORT}/ws"
       - EXPO_PUBLIC_SSE_URL= "http://${HOST_IP}:${API_PORT}/events"
+      - REACT_NATIVE_PACKAGER_HOSTNAME=${HOST_IP}
     dns:
       - 8.8.8.8
       - 1.1.1.1

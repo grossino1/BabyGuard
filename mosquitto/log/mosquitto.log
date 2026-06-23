@@ -1089,3 +1089,130 @@
 1782206812: New client connected from 172.18.0.1:57788 as tshirt002 (p4, c1, k60).
 1782206911: Client tshirt002 [172.18.0.1:57788] disconnected: exceeded timeout.
 1782207243: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782209044: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782209364: Client nodered064cbd7049622174 [172.18.0.7:37188] disconnected.
+1782209385: New connection from 172.18.0.7:47150 on port 1883.
+1782209385: New client connected from 172.18.0.7:47150 as nodered8f4cce2dd8bc22c9 (p4, c1, k60).
+1782209442: New connection from 172.18.0.1:35702 on port 1883.
+1782209442: New client connected from 172.18.0.1:35702 as tshirt002 (p4, c1, k60).
+1782209478: New connection from 172.18.0.1:60322 on port 1883.
+1782209478: Client tshirt002 [172.18.0.1:35702] disconnected: session taken over.
+1782209478: New client connected from 172.18.0.1:60322 as tshirt002 (p4, c1, k60).
+1782209697: Client tshirt002 [172.18.0.1:60322] disconnected: exceeded timeout.
+1782209996: New connection from 172.18.0.1:38800 on port 1883.
+1782209996: New client connected from 172.18.0.1:38800 as tshirt002 (p4, c1, k60).
+1782210087: Client tshirt002 [172.18.0.1:38800] disconnected: exceeded timeout.
+1782210265: New connection from 172.18.0.1:57958 on port 1883.
+1782210265: New client connected from 172.18.0.1:57958 as tshirt002 (p4, c1, k60).
+1782210299: New connection from 172.18.0.1:32914 on port 1883.
+1782210299: Client tshirt002 [172.18.0.1:57958] disconnected: session taken over.
+1782210299: New client connected from 172.18.0.1:32914 as tshirt002 (p4, c1, k60).
+1782210325: New connection from 172.18.0.1:51912 on port 1883.
+1782210327: Client tshirt002 [172.18.0.1:32914] disconnected: session taken over.
+1782210327: New client connected from 172.18.0.1:51912 as tshirt002 (p4, c1, k60).
+1782210349: New connection from 172.18.0.1:36184 on port 1883.
+1782210349: New client connected from 172.18.0.1:36184 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782210386: Client ESP32_Giacomo_NTC [172.18.0.1:36184] disconnected: connection closed by client.
+1782210403: New connection from 172.18.0.1:60942 on port 1883.
+1782210403: New client connected from 172.18.0.1:60942 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782210845: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782211517: Client auto-F2D3FFFA-8A71-9FE5-632D-B03F34EE5627 [172.18.0.5:43479] disconnected.
+1782211525: New connection from 172.18.0.5:57933 on port 1883.
+1782211525: New client connected from 172.18.0.5:57933 as auto-E7C872C2-5B55-21CF-814D-1D4726500720 (p4, c1, k60).
+1782211830: Client nodered8f4cce2dd8bc22c9 [172.18.0.7:47150] disconnected.
+1782211830: New connection from 172.18.0.7:44470 on port 1883.
+1782211830: New client connected from 172.18.0.7:44470 as nodered144e1bbc71c86679 (p4, c1, k60).
+1782211911: Client nodered144e1bbc71c86679 [172.18.0.7:44470] disconnected.
+1782211911: New connection from 172.18.0.7:38528 on port 1883.
+1782211911: New client connected from 172.18.0.7:38528 as nodered0dce08ec2cb1e37d (p4, c1, k60).
+1782211941: Client ESP32_Giacomo_NTC [172.18.0.1:60942] disconnected: connection closed by client.
+1782211945: New connection from 172.18.0.1:35130 on port 1883.
+1782211945: New client connected from 172.18.0.1:35130 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782212399: Client nodered0dce08ec2cb1e37d [172.18.0.7:38528] disconnected.
+1782212486: New connection from 172.18.0.7:45092 on port 1883.
+1782212486: New client connected from 172.18.0.7:45092 as nodered9b1396871c38835c (p4, c1, k60).
+1782212639: Client ESP32_Giacomo_NTC [172.18.0.1:35130] disconnected: connection closed by client.
+1782212645: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782212781: New connection from 172.18.0.1:52620 on port 1883.
+1782212781: New client connected from 172.18.0.1:52620 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782212805: Client ESP32_Giacomo_NTC [172.18.0.1:52620] disconnected: connection closed by client.
+1782212948: New connection from 172.18.0.1:53970 on port 1883.
+1782212948: New client connected from 172.18.0.1:53970 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782212957: Client ESP32_Giacomo_NTC [172.18.0.1:53970] disconnected: connection closed by client.
+1782213011: New connection from 172.18.0.1:42542 on port 1883.
+1782213011: New client connected from 172.18.0.1:42542 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782214446: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782215226: Client auto-E7C872C2-5B55-21CF-814D-1D4726500720 [172.18.0.5:57933] disconnected.
+1782215232: New connection from 172.18.0.5:42325 on port 1883.
+1782215232: New client connected from 172.18.0.5:42325 as auto-15ECC2A1-FD8C-4A17-A34A-F1DCEEFE263A (p4, c1, k60).
+1782215550: Protocol error from tshirt002: CONNACK when not a bridge.
+1782215550: Client tshirt002 [172.18.0.1:51912] disconnected: protocol error.
+1782215740: New connection from 172.18.0.1:59506 on port 1883.
+1782215740: New client connected from 172.18.0.1:59506 as tshirt002 (p4, c1, k60).
+1782215919: New connection from 172.18.0.1:43894 on port 1883.
+1782215920: Client tshirt002 [172.18.0.1:59506] disconnected: session taken over.
+1782215920: New client connected from 172.18.0.1:43894 as tshirt002 (p4, c1, k60).
+1782215937: Client tshirt002 [172.18.0.1:43894] disconnected: connection closed by client.
+1782215946: New connection from 172.18.0.1:44614 on port 1883.
+1782215953: New connection from 172.18.0.1:53058 on port 1883.
+1782215963: New connection from 172.18.0.1:41040 on port 1883.
+1782215963: New client connected from 172.18.0.1:41040 as tshirt002 (p4, c1, k60).
+1782215968: Client 172.18.0.1 [172.18.0.1:53058] disconnected: connection closed by client.
+1782215976: Client 172.18.0.1 [172.18.0.1:44614] disconnected: No error information.
+1782215984: New connection from 172.18.0.1:52488 on port 1883.
+1782215984: Client tshirt002 [172.18.0.1:41040] disconnected: session taken over.
+1782215984: New client connected from 172.18.0.1:52488 as tshirt002 (p4, c1, k60).
+1782216236: Client ESP32_Giacomo_NTC [172.18.0.1:42542] disconnected: connection closed by client.
+1782216247: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782218049: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782218733: Client tshirt002 [172.18.0.1:52488] disconnected: No error information.
+1782219830: New connection from 172.18.0.1:40428 on port 1883.
+1782219830: New client connected from 172.18.0.1:40428 as tshirt002 (p4, c1, k60).
+1782219865: New connection from 172.18.0.1:34160 on port 1883.
+1782219865: Client tshirt002 [172.18.0.1:40428] disconnected: session taken over.
+1782219865: New client connected from 172.18.0.1:34160 as tshirt002 (p4, c1, k60).
+1782220176: New connection from 172.18.0.1:45894 on port 1883.
+1782220176: Client tshirt002 [172.18.0.1:34160] disconnected: session taken over.
+1782220176: New client connected from 172.18.0.1:45894 as tshirt002 (p4, c1, k60).
+1782220197: New connection from 172.18.0.1:59998 on port 1883.
+1782220197: Client tshirt002 [172.18.0.1:45894] disconnected: session taken over.
+1782220197: New client connected from 172.18.0.1:59998 as tshirt002 (p4, c1, k60).
+1782220224: New connection from 172.18.0.1:35800 on port 1883.
+1782220224: Client tshirt002 [172.18.0.1:59998] disconnected: session taken over.
+1782220224: New client connected from 172.18.0.1:35800 as tshirt002 (p4, c1, k60).
+1782220244: New connection from 172.18.0.1:50084 on port 1883.
+1782220244: Client tshirt002 [172.18.0.1:35800] disconnected: session taken over.
+1782220244: New client connected from 172.18.0.1:50084 as tshirt002 (p4, c1, k60).
+1782220270: New connection from 172.18.0.1:36992 on port 1883.
+1782220270: Client tshirt002 [172.18.0.1:50084] disconnected: session taken over.
+1782220270: New client connected from 172.18.0.1:36992 as tshirt002 (p4, c1, k60).
+1782220288: New connection from 172.18.0.1:47674 on port 1883.
+1782220288: New client connected from 172.18.0.1:47674 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782220704: Client auto-15ECC2A1-FD8C-4A17-A34A-F1DCEEFE263A [172.18.0.5:42325] disconnected.
+1782220711: New connection from 172.18.0.5:37015 on port 1883.
+1782220711: New client connected from 172.18.0.5:37015 as auto-360F537E-D05A-57E5-0C73-E1594244E7FD (p4, c1, k60).
+1782220718: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782221946: Client ESP32_Giacomo_NTC [172.18.0.1:47674] disconnected: connection closed by client.
+1782221949: Client tshirt002 [172.18.0.1:36992] disconnected: exceeded timeout.
+1782221992: New connection from 172.18.0.1:53088 on port 1883.
+1782221992: New client connected from 172.18.0.1:53088 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782222133: Client auto-360F537E-D05A-57E5-0C73-E1594244E7FD [172.18.0.5:37015] disconnected.
+1782222207: New connection from 172.18.0.6:59317 on port 1883.
+1782222207: New client connected from 172.18.0.6:59317 as auto-F5EB3BBD-5ED1-2E31-89D5-A76E3C05C853 (p4, c1, k60).
+1782222245: Client ESP32_Giacomo_NTC [172.18.0.1:53088] disconnected: connection closed by client.
+1782222409: New connection from 172.18.0.1:48686 on port 1883.
+1782222409: New client connected from 172.18.0.1:48686 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782222519: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1782222699: Client ESP32_Giacomo_NTC [172.18.0.1:48686] disconnected: connection closed by client.
+1782223414: New connection from 172.18.0.1:52654 on port 1883.
+1782223414: New client connected from 172.18.0.1:52654 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782223490: Client ESP32_Giacomo_NTC [172.18.0.1:52654] disconnected: connection closed by client.
+1782223769: New connection from 172.18.0.1:53664 on port 1883.
+1782223769: New client connected from 172.18.0.1:53664 as tshirt002 (p4, c1, k60).
+1782223783: New connection from 172.18.0.1:36142 on port 1883.
+1782223783: New client connected from 172.18.0.1:36142 as ESP32_Giacomo_NTC (p4, c1, k0).
+1782223896: Client ESP32_Giacomo_NTC [172.18.0.1:36142] disconnected: connection closed by client.
+1782223980: Client tshirt002 [172.18.0.1:53664] disconnected: exceeded timeout.
+1782223984: New connection from 172.18.0.1:39980 on port 1883.
+1782223984: New client connected from 172.18.0.1:39980 as tshirt002 (p4, c1, k60).
+1782224074: Client tshirt002 [172.18.0.1:39980] disconnected: exceeded timeout.

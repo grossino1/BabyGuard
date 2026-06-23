@@ -1,12 +1,14 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Cookie, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
-from typing import List
+from typing import List, Optional
 import jwt
 import asyncio
 import json
+import httpx
+import re
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
@@ -695,3 +697,180 @@ async def read_neonate_ahi(
 @app.get("/")
 def root():
     return {"message": "Welcome to BabyGuard IoMT API"}
+
+
+# --- DOCTOR DASHBOARD LINK GENERATOR ---
+@app.get("/api/doctors/dashboard-url")
+async def get_doctor_dashboard_url(
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    if current_user.role != "doctor" and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accesso negato: solo i pediatri e gli amministratori possono accedere alla dashboard"
+        )
+    # Genera un token specifico per Grafana (scade in 1 giorno come l'access token)
+    grafana_token = auth.create_access_token(
+        data={"sub": current_user.username, "role": current_user.role}
+    )
+    # Ritorna il percorso completo
+    return {"url": f"/grafana/d/babyguard-clinical-dashboard?token={grafana_token}"}
+
+
+# --- SECURE GRAFANA REVERSE PROXY ROUTE WITH DATA ISOLATION ---
+@app.api_route("/grafana/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def grafana_proxy(
+    path: str,
+    request: Request,
+    token: Optional[str] = Query(None),
+    grafana_token: Optional[str] = Cookie(None),
+    db: AsyncSession = Depends(database.get_db)
+):
+    # 1. Recupera il token da query param o da cookie
+    active_token = token or grafana_token
+    
+    # 2. Verifica e decodifica il token
+    user = None
+    if active_token:
+        try:
+            payload = jwt.decode(active_token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+            username: str = payload.get("sub")
+            if username:
+                stmt = select(models.UserModel).where(models.UserModel.username == username)
+                res = await db.execute(stmt)
+                user = res.scalars().first()
+        except jwt.PyJWTError:
+            pass
+            
+    # Se stiamo accedendo alle pagine o alle API critiche di Grafana e non siamo autenticati, blocchiamo
+    is_critical_path = path.startswith("d/") or path == "" or path.startswith("api/") or path.startswith("login")
+    if not user and is_critical_path:
+        return Response("Non autorizzato: Sessione non valida o scaduta.", status_code=401)
+
+    # 3. Se l'utente è valido, trova i suoi pazienti associati (device_ids / shirt_ids)
+    allowed_shirts = []
+    if user:
+        if user.role == "admin":
+            stmt = select(models.NeonateModel.device_id)
+            res = await db.execute(stmt)
+            allowed_shirts = [row[0] for row in res.all() if row[0] is not None]
+        elif user.role == "doctor":
+            stmt = select(models.NeonateModel.device_id).where(models.NeonateModel.doctor_id == user.id)
+            res = await db.execute(stmt)
+            allowed_shirts = [row[0] for row in res.all() if row[0] is not None]
+        else:
+            # Per i genitori, mostriamo solo i propri neonati
+            stmt = select(models.NeonateModel.device_id).where(models.NeonateModel.parent_id == user.id)
+            res = await db.execute(stmt)
+            allowed_shirts = [row[0] for row in res.all() if row[0] is not None]
+
+    # 4. Prepara gli header da inoltrare a Grafana
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers.pop("content-length", None)
+    
+    # Inietta gli header per l'Auth Proxy di Grafana
+    if user:
+        headers["X-WEBAUTH-USER"] = user.username
+        headers["X-WEBAUTH-EMAIL"] = user.email or f"{user.username}@babyguard.local"
+        headers["X-WEBAUTH-ROLE"] = "Admin" if user.role == "admin" else "Viewer"
+
+    method = request.method
+    body = await request.body()
+
+    # 5. Intercetta e filtra le query inviate a InfluxDB per isolare i dati
+    if method == "POST" and path == "api/ds/query" and user:
+        try:
+            req_data = json.loads(body)
+            modified = False
+            for q in req_data.get("queries", []):
+                datasource = q.get("datasource", {})
+                if datasource.get("type") == "influxdb":
+                    flux_query = q.get("query", "")
+                    
+                    # A. Se è la query per la lista dei neonati (dropdown del menu a tendina), mostra solo quelli autorizzati
+                    if "schema.tagValues" in flux_query:
+                        if allowed_shirts:
+                            rows_str = ", ".join([f'{{"value": "{s}"}}' for s in allowed_shirts])
+                            new_query = f'import "array"\narray.from(rows: [{rows_str}])'
+                        else:
+                            new_query = 'import "array"\narray.from(rows: [{"value": "Nessun paziente"}])'
+                        q["query"] = new_query
+                        modified = True
+                        
+                    # B. Se è una query di telemetria, verifica che il neonato richiesto sia tra quelli autorizzati
+                    elif "shirt_id" in flux_query:
+                        match = re.search(r'(?:r\["shirt_id"\]|r\.shirt_id)\s*==\s*["\']([^"\']+)["\']', flux_query)
+                        if match:
+                            queried_id = match.group(1)
+                            if queried_id not in allowed_shirts:
+                                # Sostituisce l'ID cercato con una stringa fittizia per non ritornare dati
+                                new_query = re.sub(
+                                    r'(?:r\["shirt_id"\]|r\.shirt_id)\s*==\s*["\']([^"\']+)["\']',
+                                    'r["shirt_id"] == "UNAUTHORIZED_ACCESS_BLOCKED"',
+                                    flux_query
+                                )
+                                q["query"] = new_query
+                                modified = True
+                                
+            if modified:
+                body = json.dumps(req_data).encode("utf-8")
+                headers["content-length"] = str(len(body))
+        except Exception:
+            pass
+
+    # 6. Inoltra la richiesta al container di Grafana
+    # Grafana è raggiungibile all'interno della rete Docker come 'http://grafana:3000'
+    grafana_url = f"http://grafana:3000/grafana/{path}"
+    
+    async with httpx.AsyncClient() as client:
+        params = dict(request.query_params)
+        params.pop("token", None) # Rimuove il token query param prima dell'inoltro
+        
+        req_params = []
+        for k, v in params.items():
+            req_params.append((k, v))
+            
+        try:
+            proxy_resp = await client.request(
+                method=method,
+                url=grafana_url,
+                headers=headers,
+                params=req_params,
+                content=body,
+                cookies=request.cookies,
+                timeout=30.0
+            )
+        except Exception as e:
+            return Response(f"Errore di connessione a Grafana: {str(e)}", status_code=502)
+
+        # Rimuove gli header di compressione e connessione che gestirà uvicorn
+        exclude_headers = [
+            "content-encoding",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+        ]
+        resp_headers = {
+            k: v for k, v in proxy_resp.headers.items()
+            if k.lower() not in exclude_headers
+        }
+
+        # Genera la risposta in streaming
+        res = StreamingResponse(
+            proxy_resp.aiter_bytes(),
+            status_code=proxy_resp.status_code,
+            headers=resp_headers
+        )
+
+        # Se abbiamo validato un token query param, impostiamo il cookie per le richieste successive degli asset
+        if token and user:
+            res.set_cookie(
+                key="grafana_token",
+                value=token,
+                httponly=True,
+                samesite="lax",
+                path="/grafana"
+            )
+            
+        return res

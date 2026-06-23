@@ -13,3 +13,4 @@ websockets
 influxdb-client
 email-validator
 requests
+httpx

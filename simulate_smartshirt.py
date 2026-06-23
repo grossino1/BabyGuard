@@ -67,6 +67,25 @@ def generate_dynamic_payload(topic, payload, device_index, device_id):
     
     message_type = parts[3]
     now_t = time.time()
+
+    # Cycle orientation dynamically every 15 seconds to let user verify UI updates:
+    # 32=pancia in su (Supina)
+    # 2=fianco destro
+    # 1=fianco sinistro
+    # 16=pancia in giù (Prona) -> will trigger alert
+    # 0=transizione
+    # Total cycle is 65 seconds
+    t_cycle = int(now_t) % 65
+    if t_cycle < 15:
+        orient_val = 32  # Supina
+    elif t_cycle < 30:
+        orient_val = 2   # Fianco Dx
+    elif t_cycle < 45:
+        orient_val = 1   # Fianco Sx
+    elif t_cycle < 60:
+        orient_val = 16  # Prona
+    else:
+        orient_val = 0   # Transizione
     
     # 1. ECG (128 Hz wave + dynamic heartrate)
     if message_type == "ECG":
@@ -143,6 +162,7 @@ def generate_dynamic_payload(topic, payload, device_index, device_id):
             s.append({"x": x, "y": y, "z": z})
         payload["samples"] = s
         payload["sampling_frequency"] = 3
+        payload["orientation"] = orient_val
 
     # 4. TEMPERATURE (Body temperature drift: 36.4 - 36.9 °C)
     elif message_type == "TEMPERATURE":
@@ -155,6 +175,10 @@ def generate_dynamic_payload(topic, payload, device_index, device_id):
         payload["state_of_charge"] = max(0, min(100, soc))
         payload["voltage"] = 3700 + soc * 4
         payload["charging"] = 0
+        
+    # 6. BABY_ORIENTATION
+    elif message_type == "BABY_ORIENTATION":
+        payload["orientation"] = orient_val
         
     return payload
 

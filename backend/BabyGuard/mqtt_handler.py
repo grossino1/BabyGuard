@@ -10,7 +10,7 @@ from .influx_manager import influx_manager
 
 MQTT_BROKER = "mosquitto" # Name of the service in docker-compose
 MQTT_PORT = 1883
-TOPIC_PREFIX = "unisadiem/dmcs/sensor"
+TOPIC_PREFIX = "unisadiem/smartshirt" # Updated to new topic structure
 
 manager = None # Set by main.py
 sse_queue = None # Set by main.py
@@ -44,6 +44,32 @@ async def process_message(topic: str, payload: dict):
         data_type = parts[4]
     else:
         return
+    
+    # Map TemperatureNTC to TEMPERATURE and format payload as dictionary
+    if data_type == "TemperatureNTC":
+        data_type = "TEMPERATURE"
+        temp_val = None
+        if isinstance(payload, (int, float)):
+            temp_val = float(payload)
+        elif isinstance(payload, str):
+            try:
+                temp_val = float(payload)
+            except ValueError:
+                pass
+        elif isinstance(payload, dict):
+            val = payload.get("temperature") or payload.get("value") or (next(iter(payload.values())) if payload else None)
+            try:
+                if val is not None:
+                    temp_val = float(val)
+            except (ValueError, TypeError):
+                pass
+        
+        # If the temperature is invalid, less than or equal to 0, or greater than 60, drop the message
+        if temp_val is None or temp_val <= 0 or temp_val > 60:
+            print(f"[MQTT] Ignored invalid/out-of-range temperature value: {temp_val}")
+            return
+            
+        payload = {"temperature": temp_val}
     
     message_to_send = {
         "device_id": device_id,
@@ -111,9 +137,14 @@ async def perform_threshold_checks(db: AsyncSession, neonate: models.NeonateMode
         elif br_val > thresholds.br_max:
             await trigger_threshold_alert("BR", f"Iperventilazione: {br_val} atti/min", "high")
 
-    # 4. Position Check
-    if orientation == 1:
-        await trigger_threshold_alert("Position", "Posizione PRONA rilevata! Rischio SIDS.", "critical")
+    # 4. Position Check (Prona code from PDF is 16, check bitwise to support combined states)
+    if orientation is not None:
+        try:
+            orient_int = int(float(orientation))
+            if orient_int & 16:
+                await trigger_threshold_alert("Position", "Posizione PRONA rilevata! Rischio SIDS.", "critical")
+        except (ValueError, TypeError):
+            pass
 
     # 5. Battery Check
     if soc is not None and soc <= 15:
@@ -129,10 +160,18 @@ async def mqtt_loop():
                 async for message in client.messages:
                     topic = str(message.topic)
                     try:
-                        payload = json.loads(message.payload.decode())
+                        raw_payload = message.payload.decode().strip()
+                        try:
+                            payload = json.loads(raw_payload)
+                        except json.JSONDecodeError:
+                            # Try parsing as raw float if it's a number but not valid JSON
+                            try:
+                                payload = float(raw_payload)
+                            except ValueError:
+                                payload = raw_payload
                         await process_message(topic, payload)
                     except Exception as e:
-                        print(f"Error processing MQTT message: {e}")
+                        print(f"Error processing MQTT message on topic {topic}: {e}")
         except Exception as e:
             print(f"MQTT Connection error: {e}. Retrying in 5 seconds...")
             await asyncio.sleep(5)

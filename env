@@ -1,2 +1,2 @@
-HOST_IP=192.168.1.58 #lo devo cambiare in base a dove sto 
+HOST_IP=192.168.2.55 #lo devo cambiare in base a dove sto 
 API_PORT=8000

@@ -13,7 +13,8 @@ import {
   Modal,
   StatusBar,
   Platform,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Linking
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import * as Notifications from 'expo-notifications';
@@ -31,8 +32,18 @@ Notifications.setNotificationHandler({
 
 // --- JWT TOKEN DECODER FOR REACT NATIVE ---
 function decodeBase64(input: string): string {
+  // Converte Base64Url in Base64 standard
+  let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+  // Aggiunge il padding se mancante
+  const pad = base64.length % 4;
+  if (pad === 2) {
+    base64 += '==';
+  } else if (pad === 3) {
+    base64 += '=';
+  }
+
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-  let str = input.replace(/=+$/, '');
+  let str = base64.replace(/=+$/, '');
   let output = '';
   for (let bc = 0, bs = 0, idx = 0; idx < str.length; idx++) {
     const char = str.charAt(idx);
@@ -179,6 +190,10 @@ export default function App() {
   const [ahiData, setAhiData] = useState<{ ahi_index: number; apnea_count: number; hours: number; status: string } | null>(null);
   const [liveData, setLiveData] = useState<LiveData>({});
   const [chartSamples, setChartSamples] = useState<number[]>([]);
+  const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(0);
+  const lastDataTimestampRef = useRef<number>(0);
+  const [shirtConnected, setShirtConnected] = useState<boolean>(false);
+  const [rawEcgBuffer, setRawEcgBuffer] = useState<number[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [associateDeviceId, setAssociateDeviceId] = useState('');
 
@@ -382,10 +397,15 @@ export default function App() {
         // Decode Token for role
         try {
           const payloadBase64 = data.access_token.split('.')[1];
-          const decodedPayload = JSON.parse(decodeBase64(payloadBase64));
+          const decodedString = decodeBase64(payloadBase64);
+          console.log("DECODED STRING:", decodedString);
+          const decodedPayload = JSON.parse(decodedString);
+          console.log("DECODED PAYLOAD:", decodedPayload);
           setRole(decodedPayload.role || 'parent');
-        } catch (e) {
+          Alert.alert('Login', `Loggato con ruolo: ${decodedPayload.role || 'parent'}`);
+        } catch (e: any) {
           console.error("Error decoding token payload:", e);
+          Alert.alert('Errore Decodifica Token', e.message || 'Errore sconosciuto');
           setRole('parent'); // fallback
         }
       }
@@ -413,8 +433,38 @@ export default function App() {
     setAhiData(null);
     setLiveData({});
     setChartSamples([]);
+    setLastDataTimestamp(0);
+    lastDataTimestampRef.current = 0;
+    setShirtConnected(false);
     if (wsRef.current) {
       wsRef.current.close();
+    }
+  };
+
+  const handleOpenDashboard = async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_URL}/api/doctors/dashboard-url`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const fullUrl = `${API_URL}${data.url}`;
+        const supported = await Linking.canOpenURL(fullUrl);
+        if (supported) {
+          await Linking.openURL(fullUrl);
+        } else {
+          Alert.alert('Errore', 'Impossibile aprire il browser per questo URL: ' + fullUrl);
+        }
+      } else {
+        const errData = await response.json();
+        Alert.alert('Errore', errData.detail || 'Impossibile caricare il link della dashboard.');
+      }
+    } catch (error) {
+      Alert.alert('Errore', 'Connessione al server non riuscita.');
     }
   };
 
@@ -561,6 +611,9 @@ export default function App() {
     setAhiData(null);
     setLiveData({});
     setChartSamples([]);
+    setLastDataTimestamp(0);
+    lastDataTimestampRef.current = 0;
+    setShirtConnected(false);
   }, [selectedNeonate, token, backendIp]);
 
   // --- PERIODIC DATA POLL (Alerts & AHI) ---
@@ -579,86 +632,165 @@ export default function App() {
   useEffect(() => {
     if (!token || !selectedNeonate) return;
 
-    const ws = new WebSocket(`${WS_URL}/${selectedNeonate.id}`);
-    wsRef.current = ws;
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
+    let isMounted = true;
 
-    ws.onopen = () => {
-      setWsConnected(true);
-    };
+    const connect = () => {
+      if (!isMounted) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.event === 'alert') {
-          if (msg.neonate_id === selectedNeonate.id) {
-            setAlerts((prev) => {
-              const exists = prev.some((a) => a.id === msg.alert.id);
-              if (exists) {
-                return prev.map((a) => a.id === msg.alert.id ? msg.alert : a);
-              }
-              return [msg.alert, ...prev];
-            });
-            fetchAhi(selectedNeonate.id, token);
-          }
-        } else if (msg.event === 'alert_resolved') {
-          if (msg.neonate_id === selectedNeonate.id) {
-            setAlerts((prev) =>
-              prev.map(a => a.id === msg.alert_id ? { ...a, is_resolved: true } : a)
-            );
-            fetchAhi(selectedNeonate.id, token);
-          }
-        } else if (msg.device_id && selectedNeonate.device_id && msg.device_id.trim().toLowerCase() === selectedNeonate.device_id.trim().toLowerCase()) {
-          const type = msg.type;
-          const payload = msg.data;
+      console.log('Tentativo di connessione WebSocket...');
+      ws = new WebSocket(`${WS_URL}/${selectedNeonate.id}`);
+      wsRef.current = ws;
 
-          if (type === 'R2R' || type === 'ECG') {
-            const hr = payload.heartrate;
-            if (hr) {
-              setLiveData((prev) => ({ ...prev, heartrate: hr }));
-              setChartSamples((prev) => [...prev.slice(-15), hr]);
-            }
-          } else if (type === 'TEMPERATURE') {
-            let temp = payload.temperature;
-            if (temp !== undefined) {
-              if (temp > 10000) temp = temp / 1000.0;
-              else if (temp > 1000) temp = temp / 100.0;
-              setLiveData((prev) => ({ ...prev, temperature: temp }));
-            }
-          } else if (type === 'STRAINGAUGES_MIXED' || type === 'BREATH_ANNOTATION') {
-            const br = payload.breathrate;
-            if (br) {
-              setLiveData((prev) => ({ ...prev, breathrate: br }));
-            }
-          } else if (type === 'BABY_ORIENTATION') {
-            const orientation = payload.orientation;
-            if (orientation !== undefined) {
-              setLiveData((prev) => ({ ...prev, orientation }));
-            }
-          } else if (type === 'BATTERY_INFO') {
-            const soc = payload.state_of_charge;
-            const charging = payload.charging;
-            if (soc !== undefined) {
-              setLiveData((prev) => ({ ...prev, battery_level: soc, battery_charging: charging }));
-            }
-          }
+      ws.onopen = () => {
+        if (isMounted) {
+          console.log('WebSocket connesso con successo.');
+          setWsConnected(true);
         }
-      } catch (err) {
-        console.error('WS parse error:', err);
-      }
+      };
+
+      ws.onmessage = (event) => {
+        if (!isMounted) return;
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.event === 'alert') {
+            if (msg.neonate_id === selectedNeonate.id) {
+              setAlerts((prev) => {
+                const exists = prev.some((a) => a.id === msg.alert.id);
+                if (exists) {
+                  return prev.map((a) => a.id === msg.alert.id ? msg.alert : a);
+                }
+                return [msg.alert, ...prev];
+              });
+              fetchAhi(selectedNeonate.id, token);
+            }
+          } else if (msg.event === 'alert_resolved') {
+            if (msg.neonate_id === selectedNeonate.id) {
+              setAlerts((prev) =>
+                prev.map(a => a.id === msg.alert_id ? { ...a, is_resolved: true } : a)
+              );
+              fetchAhi(selectedNeonate.id, token);
+            }
+          } else if (msg.device_id && selectedNeonate.device_id && msg.device_id.trim().toLowerCase() === selectedNeonate.device_id.trim().toLowerCase()) {
+            lastDataTimestampRef.current = Date.now();
+            setLastDataTimestamp(Date.now());
+            setShirtConnected(true);
+            const type = msg.type ? msg.type.toUpperCase() : '';
+            const payload = msg.data;
+
+            if (type === 'R2R' || type === 'ECG') {
+              const hr = payload.heartrate;
+              if (hr && hr > 0) {
+                setLiveData((prev) => {
+                  const prevHr = prev.heartrate;
+                  // Exponential Moving Average filter (alpha = 0.2) to smooth heartrate transitions
+                  const smoothHr = prevHr && prevHr > 0 ? Math.round(0.2 * hr + 0.8 * prevHr) : hr;
+                  return { ...prev, heartrate: smoothHr };
+                });
+                setChartSamples((prevSamples) => {
+                  const prevHr = prevSamples[prevSamples.length - 1];
+                  const smoothHr = prevHr && prevHr > 0 ? Math.round(0.2 * hr + 0.8 * prevHr) : hr;
+                  return [...prevSamples.slice(-15), smoothHr];
+                });
+              }
+              // Salvataggio dei campioni ECG per il grafico real-time
+              if (type === 'ECG' && payload.samples && Array.isArray(payload.samples)) {
+                const newSamples = payload.samples;
+                setRawEcgBuffer((prev) => {
+                  // Mantiene gli ultimi 150 campioni per una visualizzazione ottimale a schermo
+                  const combined = [...prev, ...newSamples];
+                  return combined.slice(-150);
+                });
+              }
+            } else if (type === 'TEMPERATURE') {
+              let temp = payload.temperature;
+              if (temp !== undefined && temp > 0 && temp <= 60) {
+                if (temp > 10000) temp = temp / 1000.0;
+                else if (temp > 1000) temp = temp / 100.0;
+                
+                setLiveData((prev) => {
+                  const prevTemp = prev.temperature;
+                  // EMA filter (alpha = 0.15) for smooth temperature changes
+                  const smoothTemp = prevTemp && prevTemp > 0 ? Number((0.15 * temp + 0.85 * prevTemp).toFixed(2)) : temp;
+                  return { ...prev, temperature: smoothTemp };
+                });
+              }
+            } else if (type === 'STRAINGAUGES_MIXED' || type === 'BREATH_ANNOTATION') {
+              const br = payload.breathrate;
+              if (br && br > 0) {
+                setLiveData((prev) => {
+                  const prevBr = prev.breathrate;
+                  // EMA filter (alpha = 0.2) to smooth respiratory rates
+                  const smoothBr = prevBr && prevBr > 0 ? Math.round(0.2 * br + 0.8 * prevBr) : br;
+                  return { ...prev, breathrate: smoothBr };
+                });
+              }
+            } else if (type === 'BABY_ORIENTATION' || type === 'ACC_GYRO') {
+              const orientation = payload.orientation;
+              if (orientation !== undefined) {
+                setLiveData((prev) => ({ ...prev, orientation }));
+              }
+            } else if (type === 'BATTERY_INFO') {
+              const soc = payload.state_of_charge;
+              const charging = payload.charging;
+              if (soc !== undefined) {
+                setLiveData((prev) => ({ ...prev, battery_level: soc, battery_charging: charging }));
+              }
+            }
+          }
+        } catch (err) {
+          console.error('WS parse error:', err);
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.warn('WS error:', e);
+        if (isMounted) {
+          setWsConnected(false);
+        }
+      };
+
+      ws.onclose = () => {
+        console.warn('WS connessione chiusa. Tentativo di riconnessione tra 3 secondi...');
+        if (isMounted) {
+          setWsConnected(false);
+          reconnectTimeout = setTimeout(() => {
+            connect();
+          }, 3000);
+        }
+      };
     };
 
-    ws.onerror = (e) => {
-      setWsConnected(false);
-    };
-
-    ws.onclose = () => {
-      setWsConnected(false);
-    };
+    connect();
 
     return () => {
-      ws.close();
+      isMounted = false;
+      if (ws) {
+        ws.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
     };
   }, [selectedNeonate, token, backendIp]);
+
+  // --- TELEMETRY SIGNAL WATCHDOG TIMER ---
+  useEffect(() => {
+    if (!wsConnected) {
+      setShirtConnected(false);
+      return;
+    }
+    const interval = setInterval(() => {
+      const lastTs = lastDataTimestampRef.current;
+      if (lastTs > 0 && Date.now() - lastTs > 6000) {
+        setShirtConnected(false);
+        setLiveData({});
+        setRawEcgBuffer([]);
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [wsConnected]);
 
   // --- RESOLVE ALERT (Acknowledge) ---
   const handleResolveAlert = async (alertId: number) => {
@@ -1024,16 +1156,112 @@ export default function App() {
     };
   }, [chartSamples]);
 
+  // Filtro per i campioni ECG in tempo reale (rimuove il baseline wander, applica Notch 50Hz e smussa il rumore)
+  const filterEcgSamples = (rawSamples: number[]) => {
+    if (!rawSamples || rawSamples.length === 0) return [];
+    
+    // Calcola la media per rimuovere l'offset DC ed evitare enormi transienti iniziali
+    const mean = rawSamples.reduce((sum, v) => sum + v, 0) / rawSamples.length;
+    const zeroMeanSamples = rawSamples.map(v => v - mean);
+    
+    // 1. Rimuove la componente continua (baseline wander) usando un filtro IIR passa-alto
+    // y_hp[n] = x[n] - x[n-1] + 0.985 * y_hp[n-1]
+    const highPassed: number[] = [];
+    let prevX = zeroMeanSamples[0] || 0;
+    let prevYHp = 0;
+    for (let i = 0; i < zeroMeanSamples.length; i++) {
+      const x = zeroMeanSamples[i];
+      const y = x - prevX + 0.985 * prevYHp;
+      highPassed.push(y);
+      prevX = x;
+      prevYHp = y;
+    }
+
+    // 2. Filtro Notch a 50Hz per la rimozione del rumore di rete (frequenza di campionamento = 128 Hz)
+    // y_notch[n] = x_hp[n] + 1.54602 * x_hp[n-1] + x_hp[n-2] - 1.46872 * y_notch[n-1] - 0.9025 * y_notch[n-2]
+    const notched: number[] = [];
+    for (let i = 0; i < highPassed.length; i++) {
+      const x0 = highPassed[i];
+      const x1 = i > 0 ? highPassed[i-1] : 0;
+      const x2 = i > 1 ? highPassed[i-2] : 0;
+      const y1 = i > 0 ? notched[i-1] : 0;
+      const y2 = i > 1 ? notched[i-2] : 0;
+      
+      const y0 = x0 + 1.54602 * x1 + x2 - 1.46872 * y1 - 0.9025 * y2;
+      notched.push(y0);
+    }
+
+    // 3. Filtro di smoothing (media mobile su 3 punti) per smussare il rumore residuo ad alta frequenza
+    const smoothed = notched.map((val, idx) => {
+      const start = Math.max(0, idx - 1);
+      const end = Math.min(notched.length, idx + 2);
+      const sub = notched.slice(start, end);
+      return sub.reduce((sum, v) => sum + v, 0) / sub.length;
+    });
+
+    return smoothed;
+  };
+
+  // Trova gli indici dei picchi R nel segnale normalizzato (compreso tra -1.0 e 1.0)
+  const findRPeakIndices = (samples: number[]) => {
+    const indices: number[] = [];
+    if (samples.length < 5) return indices;
+    
+    const threshold = 0.58; // I picchi R superano sempre il 58% del valore massimo normalizzato
+    const minDistance = 20;  // Distanza minima tra due picchi R successivi (128Hz sampling)
+    
+    let lastPeakIdx = -minDistance;
+    
+    for (let i = 2; i < samples.length - 2; i++) {
+      const val = samples[i];
+      // Controlla se è un massimo locale ed è superiore alla soglia
+      if (val > threshold && val > samples[i-1] && val > samples[i-2] && val > samples[i+1] && val > samples[i+2]) {
+        if (i - lastPeakIdx >= minDistance) {
+          indices.push(i);
+          lastPeakIdx = i;
+        }
+      }
+    }
+    return indices;
+  };
+
+  // Prepara i campioni ECG normalizzati e filtrati
+  const ecgSamplesNormalized = useMemo(() => {
+    const filtered = filterEcgSamples(rawEcgBuffer);
+    if (!filtered.length) return [];
+    
+    const maxVal = Math.max(...filtered.map(Math.abs));
+    if (maxVal > 0) {
+      // Normalizzazione tra -1.0 e 1.0 per una scala stabile a schermo
+      return filtered.map(v => Number((v / maxVal).toFixed(3)));
+    }
+    return filtered;
+  }, [rawEcgBuffer]);
+
+  // Indici dei picchi R calcolati sui campioni normalizzati
+  const rPeakIndices = useMemo(() => {
+    return findRPeakIndices(ecgSamplesNormalized);
+  }, [ecgSamplesNormalized]);
+
+  const ecgChartData = useMemo(() => {
+    const data = ecgSamplesNormalized.length ? ecgSamplesNormalized : new Array(120).fill(0);
+    return {
+      labels: data.map((_, i) => ''),
+      datasets: [{ data }]
+    };
+  }, [ecgSamplesNormalized]);
+
   const getOrientationText = (code: number | undefined) => {
     if (code === undefined) return 'Sconosciuta';
-    switch (code) {
-      case 1: return 'Prona (Pancia in giù) ⚠️';
-      case 2: return 'Supina (Schiena giù)';
-      case 3: return 'Fianco Sinistro';
-      case 4: return 'Fianco Destro';
-      case 8: return 'In piedi / Seduto';
-      default: return `Codice ${code}`;
-    }
+    // Decodifica a bitmask delle posizioni per gestire codici composti (es. 72 = 64 + 8)
+    if (code & 16) return 'Prona ⚠️';
+    if (code & 32) return 'Supina 🛌';
+    if (code & 8) return 'In piedi / Seduto 🧍';
+    if (code & 4) return 'A testa in giù 🙃';
+    if (code & 2) return 'Fianco Dx ➡️';
+    if (code & 1) return 'Fianco Sx ⬅️';
+    if (code === 0) return 'Transizione 🔄';
+    return `Codice ${code}`;
   };
 
   // --- RENDERING ---
@@ -1273,6 +1501,11 @@ export default function App() {
                   <Text style={styles.addBabyBtnText}>+ Associa Maglietta</Text>
                 </TouchableOpacity>
               )}
+              {role === 'doctor' && (
+                <TouchableOpacity onPress={handleOpenDashboard} style={styles.addBabyBtn}>
+                  <Text style={styles.addBabyBtnText}>📊 Dashboard Clinica</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.neonateScroll}>
@@ -1323,9 +1556,9 @@ export default function App() {
                   ) : null}
                   <Text style={[
                     styles.statusBadge,
-                    wsConnected ? styles.statusLive : styles.statusDisconnected
+                    (wsConnected && shirtConnected) ? styles.statusLive : styles.statusDisconnected
                   ]}>
-                    {wsConnected ? '🟢 Live' : '🔴 Disconnesso'}
+                    {(wsConnected && shirtConnected) ? '🟢 Live' : '🔴 Disconnesso'}
                   </Text>
                 </View>
               </View>
@@ -1430,37 +1663,63 @@ export default function App() {
                 <View style={[styles.liveCard, styles.cardPos]}>
                   <Text style={styles.cardEmoji}>🧘</Text>
                   <Text style={styles.cardValSmall}>
-                    {getOrientationText(liveData.orientation)}
+                    {liveData.orientation !== undefined ? getOrientationText(liveData.orientation) : '--'}
                   </Text>
                   <Text style={styles.cardTitle}>Postura Sonno</Text>
                 </View>
               </View>
 
-              {/* HEART RATE REAL-TIME CHART */}
+              {/* ECG REAL-TIME CHART */}
               <View style={styles.chartCard}>
-                <Text style={styles.cardSectionTitle}>Frequenza Cardiaca Real-time (BPM)</Text>
+                <Text style={styles.cardSectionTitle}>Tracciato ECG in tempo reale (Onde PQRST)</Text>
                 <LineChart
-                  data={hrChartData}
+                  data={ecgChartData}
                   width={Dimensions.get('window').width - 64}
-                  height={180}
-                  yAxisSuffix=" bpm"
+                  height={170}
                   chartConfig={{
-                    backgroundColor: '#1E1E38',
-                    backgroundGradientFrom: '#24244A',
-                    backgroundGradientTo: '#1F1F3D',
-                    decimalPlaces: 0,
-                    color: (opacity = 1) => `rgba(255, 65, 108, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                    backgroundColor: '#000000',
+                    backgroundGradientFrom: '#000000',
+                    backgroundGradientTo: '#000000',
+                    decimalPlaces: 1,
+                    color: (opacity = 1) => `rgba(0, 255, 100, ${opacity})`, // Verde brillante per ECG
+                    labelColor: (opacity = 1) => `rgba(255, 100, 100, ${opacity})`, // Rosso per griglia/etichette
                     style: { borderRadius: 16 },
-                    propsForDots: {
-                      r: '4',
-                      strokeWidth: '2',
-                      stroke: '#FFA07A'
+                    propsForBackgroundLines: {
+                      strokeWidth: 1,
+                      stroke: '#3A1212', // Griglia rossa tipica della carta millimetrata ECG
+                      strokeDasharray: '', // Linea continua
+                    },
+                    propsForLabels: {
+                      fontSize: 9,
                     }
                   }}
                   bezier
+                  withDots={true}
+                  withHorizontalLabels={true} // Mostra l'asse Y con la scala
+                  withVerticalLabels={false}   // Nasconde le etichette X
+                  getDotProps={(value, index) => {
+                    const isRPeak = rPeakIndices.includes(index);
+                    return {
+                      r: isRPeak ? '3' : '0',
+                      strokeWidth: isRPeak ? '1' : '0',
+                      stroke: '#FF3366', // Bordo rosso neon per il picco R
+                      fill: '#FF6688',   // Riempimento rosa/rosso chiaro
+                    };
+                  }}
                   style={styles.chart}
                 />
+                
+                {/* LEGENDA UMANA PER I GENITORI */}
+                <View style={styles.ecgLegendContainer}>
+                  <View style={styles.ecgLegendItem}>
+                    <Text style={styles.ecgLegendDotCyan}>⬤</Text>
+                    <Text style={styles.ecgLegendText}>Onda PQRST (Segnale cardiaco sano e regolare)</Text>
+                  </View>
+                  <View style={styles.ecgLegendItem}>
+                    <Text style={styles.ecgLegendDotRed}>⬤</Text>
+                    <Text style={styles.ecgLegendText}>Picco R (Evidenziazione automatica del battito ventricolare)</Text>
+                  </View>
+                </View>
               </View>
 
               {/* THRESHOLDS CONFIG BOX */}
@@ -1799,6 +2058,9 @@ export default function App() {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+      <Text style={{ color: '#555', fontSize: 10, textAlign: 'center', marginVertical: 4 }}>
+        Versione 2.0.7 (Filtri Clinici & Griglia ECG Nera)
+      </Text>
     </SafeAreaView>
   );
 }
@@ -2125,7 +2387,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#271E3D',
     borderWidth: 1,
     borderColor: '#422C6E',
-    width: '100%',
   },
   cardEmoji: {
     fontSize: 28,
@@ -2170,6 +2431,29 @@ const styles = StyleSheet.create({
   chart: {
     marginVertical: 8,
     borderRadius: 16,
+  },
+  ecgLegendContainer: {
+    marginTop: 8,
+    paddingHorizontal: 8,
+  },
+  ecgLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  ecgLegendDotCyan: {
+    color: '#00F0FF',
+    fontSize: 10,
+    marginRight: 8,
+  },
+  ecgLegendDotRed: {
+    color: '#FF3366',
+    fontSize: 10,
+    marginRight: 8,
+  },
+  ecgLegendText: {
+    fontSize: 12,
+    color: '#AAA',
   },
   thresholdsCard: {
     backgroundColor: '#16162A',
