@@ -1,0 +1,257 @@
+il backend è un server come nodered,influx o grafana che puo mettersi in comunicazione col broker mqtt per ascoltare/inviare dati 
+Tale server ha una porta e diversi endpoint a cui possiamo chiedere diversi servizi (API) .Chi fa richieste al backend è ovviamente un browser (ma nel nostro caso penso sara l'app mobile) .Se non metto nessuno endpoint la pagina mi mostra tutti i tipi di endpoint che posso usare
+Tale server backend ha anche un db relazionale bazar(o sqlite) per salvare le anagrafiche
+
+Tale server backend si collega da una parte con mqtt per ricevere i dati dai sensori e dall 'altra si collega col broswser cosi che ,quando quest ultimo gli fa una richiesta tramite le api, il backend invia i dati al broswer (se ha usato la giusta funzione api)
+
+Il backend collega quindi mqtt, db relazionale e broswer tramite api
+
+
+ In sintesi, il flusso di una richiesta è questo:
+   1. L'App Mobile chiama un URL in main.py.
+   2. main.py valida i dati usando gli schemi di schemas.py. (form validation)
+   3. Se serve sicurezza, auth.py controlla il token.
+   4. main.py chiama una funzione in crud.py.
+   5. crud.py scrive o legge dal DB usando i modelli di models.py.
+   6. Il risultato torna indietro all'App Mobile come JSON.
+
+
+
+La differenza principale tra backend_Libri e backend_Libri_async non è in cosa fanno (entrambe gestiscono utenti e
+  libri), ma in come lo fanno a livello di prestazioni e gestione del server.
+
+  Ecco la distinzione tecnica spiegata in modo semplice:
+
+  1. Sincrono (backend_Libri) - "Uno alla volta"
+  In questa versione, il server gestisce le richieste in modo sequenziale.
+   - Se arriva una richiesta che richiede tempo (es. leggere un file enorme o aspettare il database), il server "si
+     ferma" e aspetta che l'operazione sia finita prima di passare alla richiesta successiva.
+   - Usa def per le funzioni e SQLAlchemy standard.
+   - È più semplice da scrivere e debuggare, ideale per piccoli progetti o se non hai migliaia di utenti contemporanei.
+
+  2. Asincrono (backend_Libri_async) - "Il cameriere efficiente"
+  Immagina un cameriere: invece di stare fermo davanti al tavolo aspettando che il cliente scelga il piatto, prende
+  l'ordine e va a servire altri tavoli, tornando solo quando il cliente è pronto.
+   - Usa le parole chiave async def e await.
+   - Nel file database.py usa sqlite+aiosqlite (una versione asincrona di SQLite).
+   - Mentre il database sta scrivendo i dati di un utente, il server può già iniziare a rispondere alla richiesta di un
+     altro utente.
+   - Vantaggio: Gestisce molti più utenti contemporaneamente con meno risorse.
+
+  Cosa cambia nel codice?
+  Se guardi i due file, noterai queste differenze:
+
+   * Nel database:
+       * Sincrono: create_engine("sqlite:///...")
+       * Asincrono: create_async_engine("sqlite+aiosqlite:///...")
+   * Nelle funzioni API:
+       * Sincrono: def read_books(...)
+       * Asincrono: async def read_books(...) e quando chiama il DB usa await crud.get_books(...).
+
+  Quale useremo per la tesi?
+  Per un sistema IoMT (Internet of Medical Things) come il tuo, la versione Asincrona è solitamente preferibile. Perché?
+   1. Riceverai dati dai sensori (battito, temperatura) molto frequentemente.
+   2. Molti utenti (genitori e pediatri) potrebbero guardare i grafici contemporaneamente.
+   3. Il server deve essere veloce a rispondere senza "bloccarsi" mentre scrive i dati nel DB.
+
+
+   Queste tre cartelle sono dei "laboratori" o moduli di esempio che servono a testare tecnologie specifiche prima di
+  integrarle nel progetto finale. Ecco cosa fa ognuna:
+
+  1. test_mqtt (Il Laboratorio per i Sensori)
+  Questa cartella contiene la logica per far parlare il Backend con il broker Mosquitto.
+   - Cosa fa: È un esempio di come il backend può "ascoltare" i dati che arrivano dai sensori (come la maglietta
+     intelligente) via MQTT.
+   - Funzione chiave: Usa listen_to_mqtt (un task in background) che resta sempre attivo. Quando la maglietta invia un
+     dato (es. battito cardiaco), questo script lo intercetta e lo stampa a video o lo salva in una lista.
+   - Utilità: È fondamentale per la tua tesi perché è qui che impareremo a ricevere i dati vitali del neonato.
+
+  2. websocket_see (Il Laboratorio per il Tempo Reale)
+  Qui si sperimenta come inviare dati all'App Mobile in modo istantaneo, senza che l'app debba continuare a chiedere "ci
+  sono nuovi dati?".
+   - WebSocket: Crea un tunnel aperto tra server e app. Se il server riceve un allarme (es. respiro assente), può
+     "spingerlo" immediatamente all'app.
+   - SSE (Server-Sent Events): È una tecnologia alternativa (più leggera dei WebSocket) per inviare un flusso continuo
+     di dati (come un orologio o un grafico che si aggiorna da solo).
+   - Utilità: Serve per la dashboard dell'app che deve mostrare il battito cardiaco in tempo reale.
+
+  3. app (Il Punto di Partenza "Pulito")
+  Questa è la versione più minimalista possibile di un backend FastAPI.
+   - Cosa fa: Ha solo due endpoint: uno di benvenuto (/) e uno che restituisce una lista finta di dispositivi
+     (/devices).
+   - Utilità: È stata usata probabilmente all'inizio per verificare che Docker funzionasse correttamente e che il server
+     fosse raggiungibile dal browser o dall'app mobile senza complicazioni di database o MQTT.
+
+  1. Il Backend (Consigliato ⭐⭐⭐)
+  Il posto migliore per scrivere questi algoritmi è il Backend Python (FastAPI), precisamente all'interno del modulo che
+  gestisce i dati in arrivo.
+
+   * Perché: Il backend è "sempre acceso", riceve tutti i dati dai sensori tramite MQTT e ha accesso al database dove
+     sono salvate le soglie personalizzate per ogni neonato (impostate dal medico).
+   * Dove scrivere il codice: Nel tuo file backend/BabyGuard/mqtt_handler.py (o file simili). Lì puoi creare una
+     funzione check_thresholds() che:
+       1. Riceve il valore (es. battito 150 BPM).
+       2. Legge dal DB le soglie del neonato (es. Max 140 BPM).
+       3. Se il valore supera la soglia, salva un record nella tabella Alerts e lo invia subito all'app tramite
+          WebSocket o SSE.
+
+
+  ATTENZIONE: Devi assicurarti che Node-RED, quando scrive su InfluxDB, includa l'ID della maglietta come Tag. Se non lo
+  fa, il backend non potrà mai distinguere i dati dei vari bambini.
+
+
+  PIPELINE DA SEGUIRE:
+    1. Associazione Neonato <-> Maglietta
+  Nel tuo database relazionale (SQLite/PostgreSQL), la tabella Neonates deve avere una colonna device_id.
+   * Esempio: Il neonato "Mario" ha il device_id = "MAG_001".
+
+  2. Query al Backend
+  Quando l'App Mobile chiede i dati di "Mario", il Backend fa questo:
+   1. Cerca nel DB relazionale qual è il device_id di Mario.
+   2. Esegue una query a InfluxDB filtrando per quel device_id.
+
+  3. Codice Python (Esempio di algoritmo)
+  Usando la libreria influxdb-client, il tuo backend farà una query in linguaggio Flux:
+
+    1 from influxdb_client import InfluxDBClient
+    2
+    3 def get_neonate_data(device_id: str):
+    4     client = InfluxDBClient(url="http://influxdb:8086", token="...", org="...")
+    5
+    6     # La query Flux filtra per il tag 'device_id'
+    7     query = f'''
+    8         from(bucket: "babyguard_data")
+    9         |> range(start: -5m)
+   10         |> filter(fn: (r) => r["_measurement"] == "vital_signs")
+   11         |> filter(fn: (r) => r["device_id"] == "{device_id}")
+   12         |> last()
+   13     '''
+   14
+   15     result = client.query_api().query(query)
+   16     # Qui applichi l'algoritmo sulle soglie
+   17     for table in result:
+   18         for record in table.records:
+   19             check_alerts(record.get_value(), device_id)
+
+  4. Come arrivano i dati a InfluxDB?
+  Dall'analisi dei tuoi file, ho visto che hai Node-RED attivo. Attualmente Node-RED sta leggendo da MQTT e scrivendo su
+  InfluxDB.
+
+  ATTENZIONE: Devi assicurarti che Node-RED, quando scrive su InfluxDB, includa l'ID della maglietta come Tag. Se non lo
+  fa, il backend non potrà mai distinguere i dati dei vari bambini.
+
+  Vuoi che ti aiuti a configurare Node-RED per inserire correttamente il device_id o preferisci concentrarti sulla parte
+  di codice Python per leggere questi dati?
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+ > fammi un elenco puntato di cio che devo fare partendo dall inizio per gestire nodered,influxdb, grafana, il backedn
+   e l app.Vedi tutto cio che ti serve dalla cartella iomt-lab
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+  Project Integration Roadmap: BabyGuard: Providing a comprehensive roadmap for integrating all project components.
+
+
+✦ Ecco la tabella di marcia completa per integrare tutti i componenti del progetto BabyGuard, basata sui file che ho
+  analizzato nella tua cartella iomt-lab:
+
+  1. Configurazione Flusso Dati (Node-RED)
+  È il punto di partenza: se i dati non entrano correttamente in InfluxDB, il resto non funzionerà.
+   * Identificazione: Modifica il flusso in Node-RED affinché estragga il device_id (o ID maglietta) dal topic MQTT (es.
+     unisadiem/dmcs/sensor/ID_MAGLIETTA/TIPO).
+   * Tagging: Configura il nodo InfluxDB Out per salvare il device_id come Tag e non come Field. Questo è fondamentale
+     per filtrare i dati per ogni bambino nel backend e in Grafana.
+   * Normalizzazione: Assicurati che tutti i sensori (ECG, Temperatura, Accelerometro) scrivano nello stesso Bucket
+     InfluxDB.
+
+  2. Database Relazionale (Backend - SQLite)
+  Qui gestisci le informazioni "statiche" e le regole.
+   * Modelli: Nel file backend/BabyGuard/models.py, assicurati che la tabella Neonates abbia il campo device_id (che
+     deve corrispondere esattamente a quello inviato da Node-RED).
+   * Soglie: Crea una tabella Thresholds collegata al neonato dove il medico può salvare i valori min/max (es. hr_max,
+     temp_min).
+   * Alert: Crea una tabella Alerts per storicizzare quando un valore supera una soglia.
+
+  3. Logica degli Algoritmi e Alert (Backend - Python)
+  Qui implementi il "cervello" che controlla i dati.
+   * Consumer Real-time: Nel file mqtt_handler.py, implementa la logica che:
+       1. Riceve il dato via MQTT.
+       2. Cerca nel DB SQLite quali sono le soglie per quel device_id.
+       3. Confronta il dato: se fuori soglia, salva un Alert nel DB.
+   * Bridge InfluxDB: Crea un modulo (es. influx_manager.py) che permetta al Backend di fare query a InfluxDB per
+     recuperare lo storico (es. "dammi la media del battito delle ultime 2 ore").
+
+  4. Monitoraggio Clinico (Grafana)
+  Per i medici che devono vedere l'andamento a lungo termine.
+   * Dashboard: Crea una dashboard che usa il device_id come variabile (filtro).
+   * Visualizzazione: Configura i pannelli per leggere dal bucket InfluxDB, mostrando i dati storici filtrati per il
+     bambino selezionato.
+
+  5. Sviluppo App Mobile (React Native / Expo)
+  L'interfaccia per i genitori.
+   * Inizializzazione: Crea la cartella dell'app con npx create-expo-app babyguard (come visto nelle slide).
+   * Integrazione API: Collega l'app al Backend FastAPI per:
+       * Effettuare il Login.
+       * Ricevere gli Alert in tempo reale tramite WebSocket.
+       * Leggere le soglie impostate.
+   * Visualizzazione Real-time: Usa una libreria come react-native-chart-kit per mostrare i grafici dei dati che
+     arrivano dal backend (che a sua volta li prende da InfluxDB).
+
+
+  Ho esaminato l'intera struttura del codice del backend (FastAPI) e del frontend (React Native) nella cartella
+  BabyGuard  per verificare la coerenza, l'architettura dei ruoli e il flusso dei dati.
+  L'analisi conferma che l'intero sistema è perfettamente coerente, integrato e funzionante a livello di codice. Di
+  seguito ti elenco i dettagli dei punti chiave verificati:
+  ──────
+  ### 1. Coerenza dell'Architettura dei Ruoli (Genitore vs. Pediatra)
+  Come da requisiti di progetto, il codice implementa una specializzazione dei permessi e delle visualizzazioni sia
+  sul backend che sul frontend:
+  • Lato Backend (main.py):
+      • Restrizione Associazione: Solo gli utenti con ruolo  parent  (genitore) possono registrare un nuovo neonato
+      ed associare una maglietta intelligente ( POST /neonates ).
+      • Filtro Pazienti: La rotta  GET /neonates  discrimina il ruolo del token decodificato: se è un pediatra,
+      restituisce solo i pazienti in suo carico ( crud.get_neonates_by_doctor ); se è un genitore, solo i propri
+      figli ( crud.get_neonates_by_parent ).
+      • Restrizione Soglie Cliniche: La modifica delle soglie di allarme vitale ( PUT
+      /neonates/{neonate_id}/thresholds ) è protetta e può essere eseguita esclusivamente dai pediatri ( UserRole.
+      DOCTOR ).
+  • Lato Frontend (App.tsx):
+      • Interfaccia Dinamica: L'app decodifica il ruolo dal JWT token al login e adatta la UI.
+      • Il genitore visualizza il pulsante "+ Associa Maglietta" e il tasto "Presa in Carico" per risolvere gli
+      allarmi.
+      • Il pediatra visualizza invece il pulsante "Modifica 🩺" per regolare le soglie mediche del neonato, oltre ad
+      una barra di ricerca per cercare i pazienti per nome o ID maglietta.
+
+  ──────
+  ### 2. Flusso Dati e Ricezione Allarmi in Tempo Reale
+
+  La catena dei dati è perfettamente sincronizzata:
+
+  1. MQTT ad Allarmi: Quando arrivano dati sensore via MQTT in mqtt_handler.py, il sistema confronta i valori con le
+  soglie specifiche di quel neonato in SQLite.
+  2. WebSocket & SSE Broadcast: Se un valore supera la soglia, il backend salva l'allarme in SQLite e invia un
+  broadcast via WebSocket ( manager.broadcast ) e SSE.
+  3. Aggiornamento Frontend: In App.tsx, l'ascoltatore WebSocket ( ws.onmessage ) riceve l'evento  'alert'  e
+  inserisce istantaneamente il nuovo allarme in testa alla lista visibile a schermo senza richiedere il ricaricamento
+  della pagina.
+  ──────
+  ### 3. Logica Clinica del Rilevamento delle Apnee
+
+  Gli algoritmi implementati in mqtt_handler.py rispecchiano fedelmente i requisiti medici:
+
+  • Allarme SIDS (Pausa Prolungata): Assenza di atti respiratori per ≥20 secondi.
+  • Allarme Apnea (Pausa Breve Sintomatica): Assenza di atti per un tempo ≥10 e <20 secondi, in concomitanza con
+  Bradicardia (frequenza cardiaca EMA <100 BPM) oppure Ipotonia muscolare (varianza dell'accelerometro <8000).
+  • Task Asincrono  apnea_monitor_loop : Monitora continuamente lo stato dei dispositivi ogni 2 secondi, garantendo
+  il rilevamento dell'apnea anche se i sensori smettono di inviare dati (situazione in cui una semplice logica ad
+  eventi non scatterebbe).
+  ──────
+  ### 4. Gestione delle Notifiche Push
+
+  • La rotta  /register-token  sul backend e il gestore in  App.tsx  sono allineati sul payload del professore  {
+  token: expoToken } .
+  • Le credenziali Firebase e il file  google-services.json  /  GoogleService-Info.plist  sono mappati correttamente
+  all'interno di app.json per consentire a EAS di completare le build native.
+
+  ### Stato del Progetto
+
+  Il codice è in uno stato pulito ed estremamente coerente. SQLite gestisce correttamente le relazioni molti-a-molti
+  tra pediatri, genitori e bambini tramite le tabelle associative di models.py.

@@ -1,0 +1,20 @@
+# File di sistema
+Thumbs.db
+.DS_Store
+.env
+.env.local
+
+# Mobile & Backend (Dipendenze)
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+backend/node_modules/
+
+# Dati interni dei container IoMT
+influxdb/data/
+grafana/data/
+
+# --- FIX COMPLETO NODE-RED ---
+nodered/data/node_modules/
+nodered/data/.config.json.backup
+nodered/data/.flows.json.backup

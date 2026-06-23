@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "920167141418",
+    "project_id": "babyguardapp-59118",
+    "storage_bucket": "babyguardapp-59118.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:920167141418:android:95c8b20e208cd378633353",
+        "android_client_info": {
+          "package_name": "com.aparzialeunisa.AppNotify"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfKo1wLlB2VcyMcjnhIFm5NBEso-899dE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
