@@ -3,6 +3,11 @@
     "name": "BabyGuard",
     "slug": "BabyGuard",
     "version": "1.0.0",
+    "extra": {
+      "eas": {
+        "projectId": "e797434d-a033-4fa1-b0d8-176be7368df8"
+      }
+    },
     "orientation": "portrait",
     "icon": "./assets/LogoBabyGuard.jpeg",
     "userInterfaceStyle": "light",

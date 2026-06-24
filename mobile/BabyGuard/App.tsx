@@ -409,7 +409,6 @@ export default function App() {
           const decodedPayload = JSON.parse(decodedString);
           console.log("DECODED PAYLOAD:", decodedPayload);
           setRole(decodedPayload.role || 'parent');
-          Alert.alert('Login', `Loggato con ruolo: ${decodedPayload.role || 'parent'}`);
         } catch (e: any) {
           console.error("Error decoding token payload:", e);
           Alert.alert('Errore Decodifica Token', e.message || 'Errore sconosciuto');
@@ -497,7 +496,6 @@ export default function App() {
           if (response.ok) {
             const data = await response.json();
             console.log("REGISTER RESPONSE:", data);
-            Alert.alert("Token registrato", pushToken);
           } else {
             const errMsg = await getErrorMessage(response, 'Impossibile registrare il token push');
             console.error("ERRORE REGISTRAZIONE TOKEN PUSH:", errMsg);
@@ -1888,6 +1886,58 @@ export default function App() {
                   ))
                 )}
               </View>
+
+              {/* ONLY FOR PARENT: MEDICAL ACRONYMS LEGEND */}
+              {role === 'parent' && (
+                <View style={styles.legendCard}>
+                  <Text style={styles.cardSectionTitle}>📘 Glossario termini tecnici</Text>
+                  <Text style={styles.legendSubtitle}>
+                    Questa guida ti aiuta a comprendere il significato dei parametri clinici e degli allarmi rilevati dal sistema.
+                  </Text>
+                  
+                  <View style={styles.legendItem}>
+                    <Text style={styles.legendTerm}>SIDS (Sudden Infant Death Syndrome)</Text>
+                    <Text style={styles.legendDesc}>
+                      Sindrome della morte improvvisa del lattante. Il sistema monitora la posizione prona (a pancia in giù) e la mancanza prolungata di respiro (apnea) proprio per prevenire e minimizzare questo rischio.
+                    </Text>
+                  </View>
+
+                  <View style={styles.legendItem}>
+                    <Text style={styles.legendTerm}>ALTE (Apparent Life-Threatening Event)</Text>
+                    <Text style={styles.legendDesc}>
+                      Episodio di apparente minaccia per la vita. Si verifica quando una pausa respiratoria (apnea) si associa a un forte rallentamento del battito cardiaco (bradicardia) e a rilassamento muscolare (ipotonia). Richiede immediata attenzione.
+                    </Text>
+                  </View>
+
+                  <View style={styles.legendItem}>
+                    <Text style={styles.legendTerm}>IPOTONIA</Text>
+                    <Text style={styles.legendDesc}>
+                      Diminuzione insolita del tono muscolare (il neonato appare insolitamente debole o privo di tono). Viene monitorato tramite i sensori di movimento della maglietta.
+                    </Text>
+                  </View>
+
+                  <View style={styles.legendItem}>
+                    <Text style={styles.legendTerm}>APNEA</Text>
+                    <Text style={styles.legendDesc}>
+                      Interruzione temporanea della respirazione (pausa del respiro) per un tempo superiore ai 10-20 secondi.
+                    </Text>
+                  </View>
+
+                  <View style={styles.legendItem}>
+                    <Text style={styles.legendTerm}>BRADICARDIA / TACHICARDIA</Text>
+                    <Text style={styles.legendDesc}>
+                      Frequenza cardiaca rispettivamente troppo bassa (bradicardia) o troppo alta (tachicardia) rispetto alle soglie di sicurezza stabilite dal pediatra.
+                    </Text>
+                  </View>
+
+                  <View style={styles.legendItem}>
+                    <Text style={styles.legendTerm}>IPOTERMIA / IPERTERMIA</Text>
+                    <Text style={styles.legendDesc}>
+                      Temperatura corporea cutanea rispettivamente troppo bassa (ipotermia) o troppo alta/in aumento costante (ipertermia/surriscaldamento). Un surriscaldamento corporeo è un noto fattore di rischio per la SIDS.
+                    </Text>
+                  </View>
+                </View>
+              )}
             </ScrollView>
           ) : (
             <View style={styles.emptyContainer}>
@@ -2242,7 +2292,7 @@ export default function App() {
         </KeyboardAvoidingView>
       </Modal>
       <Text style={{ color: '#555', fontSize: 10, textAlign: 'center', marginVertical: 4 }}>
-        Versione 2.0.8 (Soglie con Slider & Allarmi IoMT Avanzati)
+        Versione 2.0.9 (Legenda Clinica & Alert Riformattati)
       </Text>
     </SafeAreaView>
   );
@@ -2691,6 +2741,36 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     borderWidth: 1,
     borderColor: '#1F3E57',
+  },
+  legendCard: {
+    backgroundColor: '#12293C',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#1F3E57',
+  },
+  legendSubtitle: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  legendItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#1F3E57',
+    paddingVertical: 10,
+  },
+  legendTerm: {
+    color: '#47C1B0',
+    fontWeight: 'bold',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  legendDesc: {
+    color: '#D1D1D1',
+    fontSize: 12,
+    lineHeight: 18,
   },
   noAlertsText: {
     color: '#4E9F3D',

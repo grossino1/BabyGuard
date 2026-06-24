@@ -130,20 +130,20 @@ async def perform_threshold_checks(db: AsyncSession, neonate: models.NeonateMode
     hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
     if hr_val is not None and hr_val > 0:
         if hr_val < thresholds.hr_min:
-            await trigger_threshold_alert("HR", f"Bradicardia rilevata: {hr_val:.1f} BPM (Soglia: {thresholds.hr_min})", "critical")
+            await trigger_threshold_alert("HR", f"⚠️ ALLARME BRADICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sotto la soglia minima di {thresholds.hr_min} BPM).", "critical")
         elif hr_val > thresholds.hr_max:
-            await trigger_threshold_alert("HR", f"Tachicardia rilevata: {hr_val:.1f} BPM (Soglia: {thresholds.hr_max})", "high")
+            await trigger_threshold_alert("HR", f"⚠️ ALLARME TACHICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sopra la soglia massima di {thresholds.hr_max} BPM).", "high")
 
     # 2. Breath Rate Check
     if br_val is not None and br_val > 0:
         if br_val < thresholds.br_min:
-            await trigger_threshold_alert("BR", f"Respiro debole: {br_val} atti/min (Soglia: {thresholds.br_min})", "critical")
+            await trigger_threshold_alert("BR", f"⚠️ RESPIRAZIONE DEBOLE\n\nFrequenza respiratoria: {br_val} atti/min (Sotto la soglia minima di {thresholds.br_min} atti/min).", "critical")
         elif br_val > thresholds.br_max:
-            await trigger_threshold_alert("BR", f"Iperventilazione: {br_val} atti/min (Soglia: {thresholds.br_max})", "high")
+            await trigger_threshold_alert("BR", f"⚠️ IPERVENTILAZIONE\n\nFrequenza respiratoria: {br_val} atti/min (Sopra la soglia massima di {thresholds.br_max} atti/min).", "high")
 
     # 3. Battery Check
     if soc is not None and soc <= 15:
-        await trigger_threshold_alert("Battery", f"Batteria scarica: {soc}%", "high")
+        await trigger_threshold_alert("Battery", f"🪫 BATTERIA SCARICA\n\nLa batteria del dispositivo è al {soc}%. Collegare la maglietta alla carica.", "high")
 
 async def check_position_persistence(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, orientation: int):
     """
@@ -169,7 +169,7 @@ async def check_position_persistence(db: AsyncSession, neonate: models.NeonateMo
             elapsed = now - state.prone_start_time
             if elapsed >= 10:  # Finestra temporale di persistenza di 10 secondi
                 alert_type = "Position"
-                alert_msg = f"Posizione PRONA persistente rilevata ({int(elapsed)}s)! Elevato rischio SIDS."
+                alert_msg = f"⚠️ POSIZIONE PRONA RILEVATA ({int(elapsed)}s)\n\nIl neonato è a pancia in giù da oltre 10 secondi. Si consiglia di rimetterlo in posizione supina (a pancia in su) per prevenire il rischio SIDS."
                 severity = "critical"
                 
                 last_sent = getattr(state, "last_position_alert_time", 0)
@@ -234,17 +234,17 @@ async def check_temperature_trend(db: AsyncSession, neonate: models.NeonateModel
     if temp_avg > thresholds.temp_max:
         if trend_positive:
             alert_type = "Hyperthermia"
-            alert_msg = f"Allarme Surriscaldamento! Temp cutanea media 1m: {temp_avg:.2f}°C in costante crescita. Rischio SIDS."
+            alert_msg = f"🔥 ALLARME SURRISCALDAMENTO\n\nTemperatura cutanea media: {temp_avg:.1f}°C (Soglia max: {thresholds.temp_max:.1f}°C). Rilevato un trend in costante crescita. Rischio di ipertermia e aumento del rischio SIDS."
             severity = "critical"
         else:
             alert_type = "Temp"
-            alert_msg = f"Temperatura cutanea elevata: {temp_avg:.2f}°C (Soglia: {thresholds.temp_max}°C)"
+            alert_msg = f"🌡️ TEMPERATURA ELEVATA\n\nTemperatura cutanea media nell'ultimo minuto: {temp_avg:.1f}°C. Superata la soglia di sicurezza di {thresholds.temp_max:.1f}°C."
             severity = "high"
             
     # Soglia Ipotermia (default 36.0°C)
     elif temp_avg < thresholds.temp_min:
         alert_type = "Hypothermia"
-        alert_msg = f"Allarme Ipotermia! Temp cutanea media 1m scesa a: {temp_avg:.2f}°C (Soglia: {thresholds.temp_min}°C)"
+        alert_msg = f"❄️ ALLARME IPOTERMIA\n\nTemperatura cutanea media: {temp_avg:.1f}°C. Discesa sotto la soglia di sicurezza di {thresholds.temp_min:.1f}°C."
         severity = "high"
 
     if alert_type:
@@ -290,7 +290,7 @@ async def check_alte_conditions(db: AsyncSession, neonate: models.NeonateModel, 
         if has_bradycardia and has_hypotonia:
             alert_type = "ALTE"
             hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
-            alert_msg = f"Emergenza ALTE! Rilevata apnea sintomatica ({int(dt)}s) combinata con bradicardia ({hr_val:.1f} BPM) e ipotonia (varianza: {state.latest_var_acc:.1f})."
+            alert_msg = f"🚨 EMERGENZA CLINICA ALTE\n\nApnea rilevata da {int(dt)}s associata a:\n• Bradicardia (Battito: {hr_val:.1f} BPM)\n• Ipotonia (Movimento assente)\n\nIntervenire immediatamente!"
             severity = "critical"
             
             now = time.time()
@@ -419,7 +419,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
     
     if dt >= 20:
         alert_type = "SIDS"
-        alert_msg = f"Apnea prolungata rilevata ({int(dt)}s)! Sospetta SIDS."
+        alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre 20 secondi ({int(dt)}s). Stimolare immediatamente il neonato!"
         severity = "critical"
     elif dt >= 10:
         # Check for bradycardia (EMA of HR < 100) or hypotonia (variance < 8000)
@@ -435,10 +435,10 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
             reasons = []
             if has_bradycardia:
                 hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
-                reasons.append(f"bradicardia (HR EMA: {hr_val:.1f} BPM)")
+                reasons.append(f"bradicardia (Battito: {hr_val:.1f} BPM)")
             if has_hypotonia:
-                reasons.append(f"ipotonia (var: {state.latest_var_acc:.1f})")
-            alert_msg = f"Apnea sintomatica rilevata ({int(dt)}s) con " + " e ".join(reasons)
+                reasons.append(f"ipotonia (tono muscolare ridotto)")
+            alert_msg = f"⚠️ APNEA SINTOMATICA ({int(dt)}s)\n\nPausa respiratoria accompagnata da:\n" + "\n".join([f"• {r}" for r in reasons])
             severity = "critical"
             
     if alert_type:
