@@ -87,17 +87,17 @@ services:
       - "19002:19002"
     environment:
       # Utile quando Expo gira dentro Docker e deve essere raggiunto dal telefono con Expo Go
-      - EXPO_DEVTOOLS_LISTEN_ADDRESS= "0.0.0.0"
-      - EXPO_PUBLIC_API_URL= "http://${HOST_IP}:${API_PORT}"
-      - EXPO_PUBLIC_WS_URL= "ws://${HOST_IP}:${API_PORT}/ws"
-      - EXPO_PUBLIC_SSE_URL= "http://${HOST_IP}:${API_PORT}/events"
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS="0.0.0.0"
+      - EXPO_PUBLIC_API_URL="http://${HOST_IP}:${API_PORT}"
+      - EXPO_PUBLIC_WS_URL="ws://${HOST_IP}:${API_PORT}/ws"
+      - EXPO_PUBLIC_SSE_URL="http://${HOST_IP}:${API_PORT}/events"
       - REACT_NATIVE_PACKAGER_HOSTNAME=${HOST_IP}
     dns:
       - 8.8.8.8
       - 1.1.1.1
     stdin_open: true
     tty: true
-    #command: npx expo start --lan
+    command: npx expo start --lan
 
 volumes:
   expo-node-modules_app_websocket:

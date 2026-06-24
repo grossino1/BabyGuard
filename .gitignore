@@ -18,3 +18,18 @@ grafana/data/
 nodered/data/node_modules/
 nodered/data/.config.json.backup
 nodered/data/.flows.json.backup
+nodered/data/.npm/
+nodered/data/.config.nodes.json
+nodered/data/.config.nodes.json.backup
+
+# Python bytecode
+__pycache__/
+*.pyc
+backend/BabyGuard/__pycache__/
+
+# Mosquitto data and logs
+mosquitto/data/
+mosquitto/log/
+
+# Firebase private key (security credential)
+mobile/BabyGuard/firebase_key.json

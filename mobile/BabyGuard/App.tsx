@@ -14,7 +14,8 @@ import {
   StatusBar,
   Platform,
   KeyboardAvoidingView,
-  Linking
+  Linking,
+  Image
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import * as Notifications from 'expo-notifications';
@@ -88,16 +89,21 @@ async function registerForPushNotificationsAsync() {
   console.log("4 - Project ID:", projectId);
 
   if (!projectId) {
-    throw new Error("projectId EAS mancante in app.json/app.config.js");
+    console.warn("ATTENZIONE: projectId EAS mancante in app.json. Le notifiche push reali sono disabilitate.");
+    return null;
   }
 
   console.log("5 - Genero Expo Push Token");
-  const tokenData = await Notifications.getExpoPushTokenAsync({
-    projectId,
-  });
-  console.log("6 - Token data:", tokenData);
-
-  return tokenData.data;
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId,
+    });
+    console.log("6 - Token data:", tokenData);
+    return tokenData.data;
+  } catch (e: any) {
+    console.warn("Errore getExpoPushTokenAsync:", e.message);
+    return null;
+  }
 }
 
 // --- TYPES & INTERFACES ---
@@ -497,7 +503,7 @@ export default function App() {
             console.error("ERRORE REGISTRAZIONE TOKEN PUSH:", errMsg);
           }
         } else {
-          Alert.alert("Token assente", "Non è stato generato nessun token");
+          console.log("Notifiche push non attive (nessun token generato).");
         }
       } catch (err: any) {
         console.error("ERRORE INIT PUSH:", err);
@@ -1314,15 +1320,21 @@ export default function App() {
   // --- RENDERING ---
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1A1A2E" />
+      <StatusBar barStyle="light-content" backgroundColor="#0A1926" />
       
       {/* HEADER SECTION */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>BabyGuard IoMT</Text>
-          <Text style={styles.headerSub}>
-            {role ? `Area ${role === 'doctor' ? 'Pediatra' : 'Genitore'}` : 'Controllo sonno neonatale'}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Image 
+            source={require('./assets/LogoBabyGuard.jpeg')} 
+            style={{ width: 40, height: 40, borderRadius: 20, marginRight: 10 }} 
+          />
+          <View>
+            <Text style={styles.headerTitle}>BabyGuard IoMT</Text>
+            <Text style={styles.headerSub}>
+              {role ? `Area ${role === 'doctor' ? 'Pediatra' : 'Genitore'}` : 'Controllo sonno neonatale'}
+            </Text>
+          </View>
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity onPress={() => setShowConfig(!showConfig)} style={styles.configBtn}>
@@ -1365,6 +1377,10 @@ export default function App() {
             contentContainerStyle={styles.authContainer}
             keyboardShouldPersistTaps="handled"
           >
+            <Image 
+              source={require('./assets/LogoBabyGuard.jpeg')} 
+              style={{ width: 120, height: 120, borderRadius: 60, alignSelf: 'center', marginBottom: 20 }} 
+            />
             <View style={styles.authCard}>
             <Text style={styles.authTitle}>{isRegistering ? 'Crea Account' : 'Accedi'}</Text>
             
@@ -1724,17 +1740,17 @@ export default function App() {
                   width={Dimensions.get('window').width - 64}
                   height={170}
                   chartConfig={{
-                    backgroundColor: '#000000',
-                    backgroundGradientFrom: '#000000',
-                    backgroundGradientTo: '#000000',
+                    backgroundColor: '#12293C',
+                    backgroundGradientFrom: '#12293C',
+                    backgroundGradientTo: '#12293C',
                     decimalPlaces: 1,
-                    color: (opacity = 1) => `rgba(0, 255, 100, ${opacity})`, // Verde brillante per ECG
-                    labelColor: (opacity = 1) => `rgba(255, 100, 100, ${opacity})`, // Rosso per griglia/etichette
+                    color: (opacity = 1) => `rgba(71, 193, 176, ${opacity})`, // Verde menta del logo
+                    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.7})`, // Testo bianco trasparente
                     style: { borderRadius: 16 },
                     propsForBackgroundLines: {
                       strokeWidth: 1,
-                      stroke: '#3A1212', // Griglia rossa tipica della carta millimetrata ECG
-                      strokeDasharray: '', // Linea continua
+                      stroke: '#1F3E57', // Grigio-blu dei bordi
+                      strokeDasharray: '3', // Tratteggiato moderno
                     },
                     propsForLabels: {
                       fontSize: 9,
@@ -1816,7 +1832,7 @@ export default function App() {
                   <View style={styles.thresholdsGrid}>
                     <View style={styles.thresholdRow}>
                       <Text style={styles.thresholdName}>Indice AHI (Apnee/Ora):</Text>
-                      <Text style={[styles.thresholdVal, { fontSize: 16, color: '#00F2FE' }]}>{ahiData.ahi_index}</Text>
+                      <Text style={[styles.thresholdVal, { fontSize: 16, color: '#47C1B0' }]}>{ahiData.ahi_index}</Text>
                     </View>
                     <View style={styles.thresholdRow}>
                       <Text style={styles.thresholdName}>Apnee Rilevate (ultime 24h):</Text>
@@ -1916,9 +1932,9 @@ export default function App() {
                   value={Number(tempHrMin) || 60}
                   onValueChange={(val) => setTempHrMin(String(Math.round(val)))}
                   step={1}
-                  minimumTrackTintColor="#00F2FE"
+                  minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
-                  thumbTintColor="#00F2FE"
+                  thumbTintColor="#47C1B0"
                   style={styles.sliderComponent}
                 />
                 <View style={styles.sliderLimitsRow}>
@@ -1939,9 +1955,9 @@ export default function App() {
                   value={Number(tempHrMax) || 160}
                   onValueChange={(val) => setTempHrMax(String(Math.round(val)))}
                   step={1}
-                  minimumTrackTintColor="#00F2FE"
+                  minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
-                  thumbTintColor="#00F2FE"
+                  thumbTintColor="#47C1B0"
                   style={styles.sliderComponent}
                 />
                 <View style={styles.sliderLimitsRow}>
@@ -1962,9 +1978,9 @@ export default function App() {
                   value={Number(tempTempMin) || 36.0}
                   onValueChange={(val) => setTempTempMin(String(val.toFixed(1)))}
                   step={0.1}
-                  minimumTrackTintColor="#00F2FE"
+                  minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
-                  thumbTintColor="#00F2FE"
+                  thumbTintColor="#47C1B0"
                   style={styles.sliderComponent}
                 />
                 <View style={styles.sliderLimitsRow}>
@@ -1985,9 +2001,9 @@ export default function App() {
                   value={Number(tempTempMax) || 37.5}
                   onValueChange={(val) => setTempTempMax(String(val.toFixed(1)))}
                   step={0.1}
-                  minimumTrackTintColor="#00F2FE"
+                  minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
-                  thumbTintColor="#00F2FE"
+                  thumbTintColor="#47C1B0"
                   style={styles.sliderComponent}
                 />
                 <View style={styles.sliderLimitsRow}>
@@ -2008,9 +2024,9 @@ export default function App() {
                   value={Number(tempBrMin) || 20}
                   onValueChange={(val) => setTempBrMin(String(Math.round(val)))}
                   step={1}
-                  minimumTrackTintColor="#00F2FE"
+                  minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
-                  thumbTintColor="#00F2FE"
+                  thumbTintColor="#47C1B0"
                   style={styles.sliderComponent}
                 />
                 <View style={styles.sliderLimitsRow}>
@@ -2031,9 +2047,9 @@ export default function App() {
                   value={Number(tempBrMax) || 60}
                   onValueChange={(val) => setTempBrMax(String(Math.round(val)))}
                   step={1}
-                  minimumTrackTintColor="#00F2FE"
+                  minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
-                  thumbTintColor="#00F2FE"
+                  thumbTintColor="#47C1B0"
                   style={styles.sliderComponent}
                 />
                 <View style={styles.sliderLimitsRow}>
@@ -2235,23 +2251,23 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   header: {
     height: 70,
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#24244A',
+    borderBottomColor: '#1F3E57',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#00F2FE',
+    color: '#47C1B0',
   },
   headerSub: {
     fontSize: 12,
@@ -2266,7 +2282,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: '#25254A',
+    backgroundColor: '#1F3E57',
   },
   configBtnText: {
     color: '#FFF',
@@ -2276,7 +2292,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: '#E94560',
+    backgroundColor: '#F26C6C',
   },
   logoutBtnText: {
     color: '#FFF',
@@ -2300,7 +2316,7 @@ const styles = StyleSheet.create({
   },
   ipInput: {
     flex: 1,
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderRadius: 8,
     height: 40,
     paddingHorizontal: 10,
@@ -2309,7 +2325,7 @@ const styles = StyleSheet.create({
     borderColor: '#303060',
   },
   saveIpBtn: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
     borderRadius: 8,
     paddingHorizontal: 16,
     justifyContent: 'center',
@@ -2324,11 +2340,11 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   authCard: {
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
     elevation: 8,
   },
   authTitle: {
@@ -2340,12 +2356,12 @@ const styles = StyleSheet.create({
   },
   roleTabRow: {
     flexDirection: 'row',
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderRadius: 8,
     padding: 4,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   roleTab: {
     flex: 1,
@@ -2354,7 +2370,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   roleTabActive: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
   },
   roleTabText: {
     color: '#888',
@@ -2365,17 +2381,17 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   authInput: {
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderRadius: 8,
     height: 48,
     paddingHorizontal: 12,
     color: '#FFF',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   authBtn: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
     height: 48,
     borderRadius: 8,
     justifyContent: 'center',
@@ -2393,23 +2409,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   authToggleText: {
-    color: '#00F2FE',
+    color: '#47C1B0',
     fontSize: 14,
   },
   pickerSection: {
     padding: 16,
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderBottomWidth: 1,
-    borderBottomColor: '#24244A',
+    borderBottomColor: '#1F3E57',
   },
   searchInput: {
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderRadius: 8,
     height: 40,
     paddingHorizontal: 12,
     color: '#FFF',
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
     marginBottom: 12,
   },
   pickerHeaderRow: {
@@ -2421,13 +2437,13 @@ const styles = StyleSheet.create({
   addBabyBtn: {
     paddingVertical: 4,
     paddingHorizontal: 8,
-    backgroundColor: '#00F2FE22',
+    backgroundColor: '#47C1B022',
     borderWidth: 1,
-    borderColor: '#00F2FE',
+    borderColor: '#47C1B0',
     borderRadius: 6,
   },
   addBabyBtnText: {
-    color: '#00F2FE',
+    color: '#47C1B0',
     fontSize: 11,
     fontWeight: 'bold',
   },
@@ -2439,14 +2455,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   neonateBadge: {
-    backgroundColor: '#25254A',
+    backgroundColor: '#1F3E57',
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 20,
     marginRight: 10,
   },
   neonateBadgeActive: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
   },
   neonateBadgeText: {
     color: '#FFF',
@@ -2492,23 +2508,23 @@ const styles = StyleSheet.create({
   babyBioContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 12,
     padding: 12,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
     gap: 8,
   },
   bioChip: {
     flex: 1,
     alignItems: 'center',
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   bioChipLabel: {
     fontSize: 10,
@@ -2582,12 +2598,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   chartCard: {
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   cardSectionTitle: {
     fontSize: 15,
@@ -2598,6 +2614,9 @@ const styles = StyleSheet.create({
   chart: {
     marginVertical: 8,
     borderRadius: 16,
+    paddingRight: 35,
+    backgroundColor: '#12293C',
+    alignSelf: 'center',
   },
   ecgLegendContainer: {
     marginTop: 8,
@@ -2623,12 +2642,12 @@ const styles = StyleSheet.create({
     color: '#AAA',
   },
   thresholdsCard: {
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   thresholdsHeader: {
     flexDirection: 'row',
@@ -2638,13 +2657,13 @@ const styles = StyleSheet.create({
   editBtn: {
     paddingVertical: 4,
     paddingHorizontal: 8,
-    backgroundColor: '#00F2FE22',
+    backgroundColor: '#47C1B022',
     borderWidth: 1,
-    borderColor: '#00F2FE',
+    borderColor: '#47C1B0',
     borderRadius: 6,
   },
   editBtnText: {
-    color: '#00F2FE',
+    color: '#47C1B0',
     fontSize: 11,
     fontWeight: '600',
   },
@@ -2656,7 +2675,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#24244A',
+    borderBottomColor: '#1F3E57',
   },
   thresholdName: {
     color: '#AAA',
@@ -2666,12 +2685,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   alertsCard: {
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 16,
     padding: 16,
     marginBottom: 32,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   noAlertsText: {
     color: '#4E9F3D',
@@ -2717,7 +2736,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   resolveBtn: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
     paddingVertical: 2,
     paddingHorizontal: 8,
     borderRadius: 4,
@@ -2768,7 +2787,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   emptyAddBabyBtn: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
@@ -2785,11 +2804,11 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalCard: {
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
     maxHeight: '90%',
   },
   modalTitle: {
@@ -2805,9 +2824,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   modalInput: {
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
     borderRadius: 8,
     height: 40,
     paddingHorizontal: 10,
@@ -2819,7 +2838,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   doctorSelectBadge: {
-    backgroundColor: '#25254A',
+    backgroundColor: '#1F3E57',
     padding: 8,
     borderRadius: 8,
     marginBottom: 6,
@@ -2827,19 +2846,19 @@ const styles = StyleSheet.create({
     borderColor: '#303060',
   },
   doctorSelectBadgeActive: {
-    backgroundColor: '#00F2FE33',
-    borderColor: '#00F2FE',
+    backgroundColor: '#47C1B033',
+    borderColor: '#47C1B0',
   },
   doctorSelectText: {
     color: '#AAA',
     fontSize: 13,
   },
   doctorSelectTextActive: {
-    color: '#00F2FE',
+    color: '#47C1B0',
     fontWeight: 'bold',
   },
   noDoctorsText: {
-    color: '#E94560',
+    color: '#F26C6C',
     fontSize: 12,
     fontStyle: 'italic',
   },
@@ -2853,7 +2872,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#25254A',
+    backgroundColor: '#1F3E57',
   },
   modalCancelBtnText: {
     color: '#FFF',
@@ -2863,7 +2882,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
     minWidth: 80,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2876,27 +2895,27 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 6,
-    backgroundColor: '#E9456022',
+    backgroundColor: '#F26C6C22',
     borderWidth: 1,
-    borderColor: '#E94560',
+    borderColor: '#F26C6C',
   },
   dissociateBtnText: {
-    color: '#E94560',
+    color: '#F26C6C',
     fontSize: 10,
     fontWeight: 'bold',
   },
   associateCard: {
-    backgroundColor: '#16162A',
+    backgroundColor: '#12293C',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   associateTitle: {
     fontSize: 15,
     fontWeight: 'bold',
-    color: '#00F2FE',
+    color: '#47C1B0',
     marginBottom: 8,
   },
   associateDesc: {
@@ -2911,16 +2930,16 @@ const styles = StyleSheet.create({
   },
   associateInput: {
     flex: 1,
-    backgroundColor: '#0F0F1A',
+    backgroundColor: '#0d2537',
     borderRadius: 8,
     height: 40,
     paddingHorizontal: 10,
     color: '#FFF',
     borderWidth: 1,
-    borderColor: '#24244A',
+    borderColor: '#1F3E57',
   },
   associateBtnSubmit: {
-    backgroundColor: '#00F2FE',
+    backgroundColor: '#47C1B0',
     borderRadius: 8,
     paddingHorizontal: 16,
     justifyContent: 'center',
@@ -2949,11 +2968,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   inputError: {
-    borderColor: '#E94560',
+    borderColor: '#F26C6C',
     borderWidth: 1.5,
   },
   errorText: {
-    color: '#E94560',
+    color: '#F26C6C',
     fontSize: 12,
     marginTop: -8,
     marginBottom: 12,
@@ -2971,7 +2990,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sliderValueText: {
-    color: '#00F2FE',
+    color: '#47C1B0',
     fontSize: 14,
     fontWeight: 'bold',
   },

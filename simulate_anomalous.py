@@ -192,6 +192,8 @@ def main():
                         topic_parts = orig_topic.split("/")
                         if len(topic_parts) >= 3:
                             topic_parts[2] = device_id
+                            if len(topic_parts) >= 4 and topic_parts[3] == "TEMPERATURE":
+                                topic_parts[3] = "TemperatureNTC"
                             topic = "/".join(topic_parts)
                         else:
                             topic = orig_topic

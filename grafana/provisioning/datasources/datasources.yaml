@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: babyguard-influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: iomt-lab
+      defaultBucket: babyguard_bucket
+      tlsSkipVerify: true
+    secureJsonData:
+      token: VHKmLZuJVqWxdmEc0djF3mA1UTrYvNSYrHrJAz58cXn9g5DLUmvXMOMOqISFy0CsU4-QepolBSEra6aMSZ748g==
+    editable: true
+    uid: babyguard-influxdb
