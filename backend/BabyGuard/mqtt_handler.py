@@ -4,6 +4,7 @@ import time
 import math
 import urllib.request
 import aiomqtt
+import traceback
 from sqlalchemy.ext.asyncio import AsyncSession
 from . import models, database, crud
 from .influx_manager import influx_manager
@@ -28,6 +29,15 @@ class DeviceState:
         self.battery_level = None
         self.battery_charging = None
         self.battery_voltage = None
+        
+        # Advanced clinical algorithms states
+        self.prone_start_time = None
+        self.temp_history = []
+        self.last_threshold_alerts = {}
+        self.last_apnea_alert_type = None
+        self.last_apnea_alert_time = 0
+        self.last_alte_alert_time = 0
+        self.last_position_alert_time = 0
 
 # Global in-memory cache for wearable devices
 device_states = {}
@@ -116,39 +126,201 @@ async def perform_threshold_checks(db: AsyncSession, neonate: models.NeonateMode
             if sse_queue:
                 await sse_queue.put(alert_message)
 
-    # 1. Temperature Check
-    if temp_val is not None and temp_val > 0:
-        if temp_val < thresholds.temp_min:
-            await trigger_threshold_alert("Temp", f"Temperatura bassa: {temp_val}°C", "high")
-        elif temp_val > thresholds.temp_max:
-            await trigger_threshold_alert("Temp", f"Temperatura alta: {temp_val}°C", "high")
+    # 1. Heart Rate Check (Utilizza la media mobile esponenziale EMA per evitare falsi positivi da artefatti)
+    hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
+    if hr_val is not None and hr_val > 0:
+        if hr_val < thresholds.hr_min:
+            await trigger_threshold_alert("HR", f"Bradicardia rilevata: {hr_val:.1f} BPM (Soglia: {thresholds.hr_min})", "critical")
+        elif hr_val > thresholds.hr_max:
+            await trigger_threshold_alert("HR", f"Tachicardia rilevata: {hr_val:.1f} BPM (Soglia: {thresholds.hr_max})", "high")
 
-    # 2. Heart Rate Check
-    if state.latest_hr is not None and state.latest_hr > 0:
-        if state.latest_hr < thresholds.hr_min:
-            await trigger_threshold_alert("HR", f"Bradicardia rilevata: {state.latest_hr} BPM", "critical")
-        elif state.latest_hr > thresholds.hr_max:
-            await trigger_threshold_alert("HR", f"Tachicardia rilevata: {state.latest_hr} BPM", "high")
-
-    # 3. Breath Rate Check
+    # 2. Breath Rate Check
     if br_val is not None and br_val > 0:
         if br_val < thresholds.br_min:
-            await trigger_threshold_alert("BR", f"Respiro debole: {br_val} atti/min", "critical")
+            await trigger_threshold_alert("BR", f"Respiro debole: {br_val} atti/min (Soglia: {thresholds.br_min})", "critical")
         elif br_val > thresholds.br_max:
-            await trigger_threshold_alert("BR", f"Iperventilazione: {br_val} atti/min", "high")
+            await trigger_threshold_alert("BR", f"Iperventilazione: {br_val} atti/min (Soglia: {thresholds.br_max})", "high")
 
-    # 4. Position Check (Prona code from PDF is 16, check bitwise to support combined states)
-    if orientation is not None:
-        try:
-            orient_int = int(float(orientation))
-            if orient_int & 16:
-                await trigger_threshold_alert("Position", "Posizione PRONA rilevata! Rischio SIDS.", "critical")
-        except (ValueError, TypeError):
-            pass
-
-    # 5. Battery Check
+    # 3. Battery Check
     if soc is not None and soc <= 15:
         await trigger_threshold_alert("Battery", f"Batteria scarica: {soc}%", "high")
+
+async def check_position_persistence(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, orientation: int):
+    """
+    Rilevamento posizione prona persistente (T_p = 10s) per prevenire la SIDS.
+    Se l'orientamento rimane a pancia in giù (16) per almeno 10 secondi, genera l'allarme.
+    """
+    if orientation is None:
+        state.prone_start_time = None
+        return
+
+    try:
+        orient_int = int(float(orientation))
+    except (ValueError, TypeError):
+        return
+
+    is_prone = bool(orient_int & 16)
+    now = time.time()
+
+    if is_prone:
+        if state.prone_start_time is None:
+            state.prone_start_time = now
+        else:
+            elapsed = now - state.prone_start_time
+            if elapsed >= 10:  # Finestra temporale di persistenza di 10 secondi
+                alert_type = "Position"
+                alert_msg = f"Posizione PRONA persistente rilevata ({int(elapsed)}s)! Elevato rischio SIDS."
+                severity = "critical"
+                
+                last_sent = getattr(state, "last_position_alert_time", 0)
+                if now - last_sent > 30:
+                    state.last_position_alert_time = now
+                    db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+                    print(f"[ALERT POSITION SIDS] {neonate.first_name}: {alert_msg}")
+                    
+                    alert_message = {
+                        "event": "alert",
+                        "neonate_id": neonate.id,
+                        "device_id": device_id,
+                        "alert": {
+                            "id": db_alert.id,
+                            "type": db_alert.type,
+                            "message": db_alert.message,
+                            "severity": db_alert.severity,
+                            "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                            "is_resolved": bool(db_alert.is_resolved)
+                        }
+                    }
+                    
+                    await send_push_notification(db, neonate, alert_msg)
+                    if manager:
+                        await manager.broadcast(alert_message)
+                    if sse_queue:
+                        await sse_queue.put(alert_message)
+    else:
+        state.prone_start_time = None
+
+async def check_temperature_trend(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, temp_val: float, thresholds):
+    """
+    Calcola la media mobile a 1 minuto per stabilizzare il sensore di temperatura cutanea.
+    - Se supera 37.5°C con trend in costante aumento, genera ALLARME SURRISCALDAMENTO.
+    - Se scende sotto 36.0°C, genera ALLARME IPOTERMIA.
+    """
+    if temp_val is None or temp_val <= 0 or temp_val > 60:
+        return
+
+    now = time.time()
+    state.temp_history.append((now, temp_val))
+    
+    # Filtro di stabilità: Mantieni solo le letture dell'ultimo minuto (60 secondi)
+    state.temp_history = [(t, v) for t, v in state.temp_history if now - t <= 60]
+
+    if len(state.temp_history) < 2:
+        return
+
+    # Calcolo media mobile
+    temp_avg = sum(v for _, v in state.temp_history) / len(state.temp_history)
+    
+    # Determinazione trend: positivo se la temperatura finale è maggiore di quella iniziale dell'ultimo minuto (almeno di 0.05°C)
+    first_val = state.temp_history[0][1]
+    last_val = state.temp_history[-1][1]
+    trend_positive = (last_val - first_val) >= 0.05
+
+    alert_type = None
+    alert_msg = ""
+    severity = "high"
+
+    # Soglia Ipertermia (default 37.5°C)
+    if temp_avg > thresholds.temp_max:
+        if trend_positive:
+            alert_type = "Hyperthermia"
+            alert_msg = f"Allarme Surriscaldamento! Temp cutanea media 1m: {temp_avg:.2f}°C in costante crescita. Rischio SIDS."
+            severity = "critical"
+        else:
+            alert_type = "Temp"
+            alert_msg = f"Temperatura cutanea elevata: {temp_avg:.2f}°C (Soglia: {thresholds.temp_max}°C)"
+            severity = "high"
+            
+    # Soglia Ipotermia (default 36.0°C)
+    elif temp_avg < thresholds.temp_min:
+        alert_type = "Hypothermia"
+        alert_msg = f"Allarme Ipotermia! Temp cutanea media 1m scesa a: {temp_avg:.2f}°C (Soglia: {thresholds.temp_min}°C)"
+        severity = "high"
+
+    if alert_type:
+        last_sent = state.last_threshold_alerts.get(alert_type, 0)
+        if now - last_sent > 30:
+            state.last_threshold_alerts[alert_type] = now
+            db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+            print(f"[ALERT TEMPERATURE] {neonate.first_name}: {alert_msg}")
+            
+            alert_message = {
+                "event": "alert",
+                "neonate_id": neonate.id,
+                "device_id": device_id,
+                "alert": {
+                    "id": db_alert.id,
+                    "type": db_alert.type,
+                    "message": db_alert.message,
+                    "severity": db_alert.severity,
+                    "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                    "is_resolved": bool(db_alert.is_resolved)
+                }
+            }
+            
+            await send_push_notification(db, neonate, alert_msg)
+            if manager:
+                await manager.broadcast(alert_message)
+            if sse_queue:
+                await sse_queue.put(alert_message)
+
+async def check_alte_conditions(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, dt: float) -> bool:
+    """
+    Rilevamento ALTE (Apparent Life Threatening Event):
+    Pausa respiratoria (10s-20s) associata a bradicardia (HR EMA < 100) E ipotonia (varianza IMU < 8000).
+    """
+    if dt >= 10:
+        has_bradycardia = state.latest_hr_ema is not None and state.latest_hr_ema < 100
+        has_hypotonia = state.latest_var_acc is not None and state.latest_var_acc < 8000
+        
+        # Fallback se l'EMA non è ancora calcolata
+        if state.latest_hr_ema is None and state.latest_hr is not None and state.latest_hr < 100:
+            has_bradycardia = True
+
+        if has_bradycardia and has_hypotonia:
+            alert_type = "ALTE"
+            hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
+            alert_msg = f"Emergenza ALTE! Rilevata apnea sintomatica ({int(dt)}s) combinata con bradicardia ({hr_val:.1f} BPM) e ipotonia (varianza: {state.latest_var_acc:.1f})."
+            severity = "critical"
+            
+            now = time.time()
+            last_sent = getattr(state, "last_alte_alert_time", 0)
+            if now - last_sent > 30:
+                state.last_alte_alert_time = now
+                db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+                print(f"[ALERT ALTE] {neonate.first_name}: {alert_msg}")
+                
+                alert_message = {
+                    "event": "alert",
+                    "neonate_id": neonate.id,
+                    "device_id": device_id,
+                    "alert": {
+                        "id": db_alert.id,
+                        "type": db_alert.type,
+                        "message": db_alert.message,
+                        "severity": db_alert.severity,
+                        "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                        "is_resolved": bool(db_alert.is_resolved)
+                    }
+                }
+                
+                await send_push_notification(db, neonate, alert_msg)
+                if manager:
+                    await manager.broadcast(alert_message)
+                if sse_queue:
+                    await sse_queue.put(alert_message)
+                return True
+    return False
 
 async def mqtt_loop():
     while True:
@@ -172,6 +344,7 @@ async def mqtt_loop():
                         await process_message(topic, payload)
                     except Exception as e:
                         print(f"Error processing MQTT message on topic {topic}: {e}")
+                        traceback.print_exc()
         except Exception as e:
             print(f"MQTT Connection error: {e}. Retrying in 5 seconds...")
             await asyncio.sleep(5)
@@ -367,13 +540,23 @@ async def apnea_monitor_loop():
                     # Accelerometer variance (hypotonia)
                     state.latest_var_acc = influx_manager.get_latest_acc_variance(device_id)
                     
-                    # 4. Check clinical apnea conditions
-                    await check_apnea_conditions(db, neonate, state, device_id)
+                    # 4. Check clinical apnea & ALTE conditions
+                    now = time.time()
+                    dt = now - state.last_breath_time
                     
-                    # 5. Check thresholds
+                    alte_triggered = await check_alte_conditions(db, neonate, state, device_id, dt)
+                    if not alte_triggered:
+                        await check_apnea_conditions(db, neonate, state, device_id)
+                    
+                    # 5. Check position with persistence filter (Tp = 10s)
+                    await check_position_persistence(db, neonate, state, device_id, orientation)
+                    
+                    # 6. Check temperature & other thresholds
                     thresholds = await crud.get_thresholds(db, neonate.id)
                     if thresholds:
+                        await check_temperature_trend(db, neonate, state, device_id, temp_val, thresholds)
                         await perform_threshold_checks(db, neonate, state, device_id, temp_val, br_val, orientation, soc, thresholds)
                         
         except Exception as e:
             print(f"Error in apnea_monitor_loop: {e}")
+            traceback.print_exc()

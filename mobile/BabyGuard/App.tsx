@@ -20,6 +20,7 @@ import { LineChart } from 'react-native-chart-kit';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import Slider from '@react-native-community/slider';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -1903,23 +1904,143 @@ export default function App() {
             <View style={[styles.modalCard, { maxHeight: undefined }]}>
               <Text style={styles.modalTitle}>🩺 Modifica Soglie Mediche</Text>
               
-              <Text style={styles.modalLabel}>Battito Cardiaco Minimo (BPM):</Text>
-              <TextInput style={styles.modalInput} value={tempHrMin} onChangeText={setTempHrMin} keyboardType="numeric" />
+              {/* HR MIN SLIDER */}
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderLabelRow}>
+                  <Text style={styles.modalLabel}>Battito Cardiaco Minimo:</Text>
+                  <Text style={styles.sliderValueText}>{tempHrMin || '0'} BPM</Text>
+                </View>
+                <Slider
+                  minimumValue={50}
+                  maximumValue={120}
+                  value={Number(tempHrMin) || 60}
+                  onValueChange={(val) => setTempHrMin(String(Math.round(val)))}
+                  step={1}
+                  minimumTrackTintColor="#00F2FE"
+                  maximumTrackTintColor="#333"
+                  thumbTintColor="#00F2FE"
+                  style={styles.sliderComponent}
+                />
+                <View style={styles.sliderLimitsRow}>
+                  <Text style={styles.sliderLimitText}>50 BPM</Text>
+                  <Text style={styles.sliderLimitText}>120 BPM</Text>
+                </View>
+              </View>
               
-              <Text style={styles.modalLabel}>Battito Cardiaco Massimo (BPM):</Text>
-              <TextInput style={styles.modalInput} value={tempHrMax} onChangeText={setTempHrMax} keyboardType="numeric" />
+              {/* HR MAX SLIDER */}
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderLabelRow}>
+                  <Text style={styles.modalLabel}>Battito Cardiaco Massimo:</Text>
+                  <Text style={styles.sliderValueText}>{tempHrMax || '0'} BPM</Text>
+                </View>
+                <Slider
+                  minimumValue={100}
+                  maximumValue={220}
+                  value={Number(tempHrMax) || 160}
+                  onValueChange={(val) => setTempHrMax(String(Math.round(val)))}
+                  step={1}
+                  minimumTrackTintColor="#00F2FE"
+                  maximumTrackTintColor="#333"
+                  thumbTintColor="#00F2FE"
+                  style={styles.sliderComponent}
+                />
+                <View style={styles.sliderLimitsRow}>
+                  <Text style={styles.sliderLimitText}>100 BPM</Text>
+                  <Text style={styles.sliderLimitText}>220 BPM</Text>
+                </View>
+              </View>
 
-              <Text style={styles.modalLabel}>Temperatura Minima (°C):</Text>
-              <TextInput style={styles.modalInput} value={tempTempMin} onChangeText={setTempTempMin} keyboardType="numeric" />
+              {/* TEMP MIN SLIDER */}
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderLabelRow}>
+                  <Text style={styles.modalLabel}>Temperatura Minima:</Text>
+                  <Text style={styles.sliderValueText}>{Number(tempTempMin || 36.0).toFixed(1)} °C</Text>
+                </View>
+                <Slider
+                  minimumValue={34.0}
+                  maximumValue={37.0}
+                  value={Number(tempTempMin) || 36.0}
+                  onValueChange={(val) => setTempTempMin(String(val.toFixed(1)))}
+                  step={0.1}
+                  minimumTrackTintColor="#00F2FE"
+                  maximumTrackTintColor="#333"
+                  thumbTintColor="#00F2FE"
+                  style={styles.sliderComponent}
+                />
+                <View style={styles.sliderLimitsRow}>
+                  <Text style={styles.sliderLimitText}>34.0 °C</Text>
+                  <Text style={styles.sliderLimitText}>37.0 °C</Text>
+                </View>
+              </View>
 
-              <Text style={styles.modalLabel}>Temperatura Massima (°C):</Text>
-              <TextInput style={styles.modalInput} value={tempTempMax} onChangeText={setTempTempMax} keyboardType="numeric" />
+              {/* TEMP MAX SLIDER */}
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderLabelRow}>
+                  <Text style={styles.modalLabel}>Temperatura Massima:</Text>
+                  <Text style={styles.sliderValueText}>{Number(tempTempMax || 37.5).toFixed(1)} °C</Text>
+                </View>
+                <Slider
+                  minimumValue={37.0}
+                  maximumValue={41.0}
+                  value={Number(tempTempMax) || 37.5}
+                  onValueChange={(val) => setTempTempMax(String(val.toFixed(1)))}
+                  step={0.1}
+                  minimumTrackTintColor="#00F2FE"
+                  maximumTrackTintColor="#333"
+                  thumbTintColor="#00F2FE"
+                  style={styles.sliderComponent}
+                />
+                <View style={styles.sliderLimitsRow}>
+                  <Text style={styles.sliderLimitText}>37.0 °C</Text>
+                  <Text style={styles.sliderLimitText}>41.0 °C</Text>
+                </View>
+              </View>
 
-              <Text style={styles.modalLabel}>Respiro Minimo (atti/min):</Text>
-              <TextInput style={styles.modalInput} value={tempBrMin} onChangeText={setTempBrMin} keyboardType="numeric" />
+              {/* BR MIN SLIDER */}
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderLabelRow}>
+                  <Text style={styles.modalLabel}>Respiro Minimo:</Text>
+                  <Text style={styles.sliderValueText}>{tempBrMin || '0'} atti/min</Text>
+                </View>
+                <Slider
+                  minimumValue={10}
+                  maximumValue={40}
+                  value={Number(tempBrMin) || 20}
+                  onValueChange={(val) => setTempBrMin(String(Math.round(val)))}
+                  step={1}
+                  minimumTrackTintColor="#00F2FE"
+                  maximumTrackTintColor="#333"
+                  thumbTintColor="#00F2FE"
+                  style={styles.sliderComponent}
+                />
+                <View style={styles.sliderLimitsRow}>
+                  <Text style={styles.sliderLimitText}>10/min</Text>
+                  <Text style={styles.sliderLimitText}>40/min</Text>
+                </View>
+              </View>
 
-              <Text style={styles.modalLabel}>Respiro Massimo (atti/min):</Text>
-              <TextInput style={styles.modalInput} value={tempBrMax} onChangeText={setTempBrMax} keyboardType="numeric" />
+              {/* BR MAX SLIDER */}
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderLabelRow}>
+                  <Text style={styles.modalLabel}>Respiro Massimo:</Text>
+                  <Text style={styles.sliderValueText}>{tempBrMax || '0'} atti/min</Text>
+                </View>
+                <Slider
+                  minimumValue={30}
+                  maximumValue={80}
+                  value={Number(tempBrMax) || 60}
+                  onValueChange={(val) => setTempBrMax(String(Math.round(val)))}
+                  step={1}
+                  minimumTrackTintColor="#00F2FE"
+                  maximumTrackTintColor="#333"
+                  thumbTintColor="#00F2FE"
+                  style={styles.sliderComponent}
+                />
+                <View style={styles.sliderLimitsRow}>
+                  <Text style={styles.sliderLimitText}>30/min</Text>
+                  <Text style={styles.sliderLimitText}>80/min</Text>
+                </View>
+              </View>
 
               <View style={styles.modalActions}>
                 <TouchableOpacity onPress={() => setEditThresholdsModal(false)} style={styles.modalCancelBtn}>
@@ -2105,7 +2226,7 @@ export default function App() {
         </KeyboardAvoidingView>
       </Modal>
       <Text style={{ color: '#555', fontSize: 10, textAlign: 'center', marginVertical: 4 }}>
-        Versione 2.0.7 (Filtri Clinici & Griglia ECG Nera)
+        Versione 2.0.8 (Soglie con Slider & Allarmi IoMT Avanzati)
       </Text>
     </SafeAreaView>
   );
@@ -2838,5 +2959,34 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginLeft: 4,
     fontWeight: '500',
+  },
+  sliderContainer: {
+    marginBottom: 16,
+    width: '100%',
+  },
+  sliderLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  sliderValueText: {
+    color: '#00F2FE',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  sliderComponent: {
+    width: '100%',
+    height: 40,
+  },
+  sliderLimitsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: -4,
+    paddingHorizontal: 4,
+  },
+  sliderLimitText: {
+    color: '#888',
+    fontSize: 11,
   },
 })
