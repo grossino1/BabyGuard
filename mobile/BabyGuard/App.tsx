@@ -201,6 +201,7 @@ export default function App() {
   const lastDataTimestampRef = useRef<number>(0);
   const [shirtConnected, setShirtConnected] = useState<boolean>(false);
   const [rawEcgBuffer, setRawEcgBuffer] = useState<number[]>([]);
+  const pendingEcgSamplesRef = useRef<number[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [associateDeviceId, setAssociateDeviceId] = useState('');
 
@@ -699,14 +700,12 @@ export default function App() {
                   return [...prevSamples.slice(-15), smoothHr];
                 });
               }
-              // Salvataggio dei campioni ECG per il grafico real-time
+              // Accoda i campioni ricevuti al buffer in attesa per l'aggiornamento fluido
               if (type === 'ECG' && payload.samples && Array.isArray(payload.samples)) {
-                const newSamples = payload.samples;
-                setRawEcgBuffer((prev) => {
-                  // Mantiene gli ultimi 150 campioni per una visualizzazione ottimale a schermo
-                  const combined = [...prev, ...newSamples];
-                  return combined.slice(-150);
-                });
+                pendingEcgSamplesRef.current.push(...payload.samples);
+                if (pendingEcgSamplesRef.current.length > 1000) {
+                  pendingEcgSamplesRef.current = pendingEcgSamplesRef.current.slice(-500);
+                }
               }
             } else if (type === 'TEMPERATURE') {
               let temp = payload.temperature;
@@ -792,10 +791,39 @@ export default function App() {
         setShirtConnected(false);
         setLiveData({});
         setRawEcgBuffer([]);
+        pendingEcgSamplesRef.current = [];
       }
     }, 2000);
     return () => clearInterval(interval);
   }, [wsConnected]);
+
+  // --- ECG SMOOTH FEED TICKER ---
+  useEffect(() => {
+    // Eseguiamo un tick ogni 30ms (~33 FPS) per aggiornare il grafico in modo continuo e fluido
+    const interval = setInterval(() => {
+      const pendingCount = pendingEcgSamplesRef.current.length;
+      if (pendingCount === 0) return;
+
+      // Adattamento dinamico della velocità per mantenere sincronia ed evitare lag:
+      // Standard: 4 campioni ogni 30ms (circa 133/s, leggermente sopra i 128Hz di campionamento)
+      let chunkSize = 4;
+      if (pendingCount > 400) {
+        chunkSize = 12; // recupero rapido
+      } else if (pendingCount > 200) {
+        chunkSize = 8;  // recupero medio
+      }
+
+      const chunk = pendingEcgSamplesRef.current.slice(0, chunkSize);
+      pendingEcgSamplesRef.current = pendingEcgSamplesRef.current.slice(chunkSize);
+
+      setRawEcgBuffer((prev) => {
+        const combined = [...prev, ...chunk];
+        return combined.slice(-150);
+      });
+    }, 30);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // --- RESOLVE ALERT (Acknowledge) ---
   const handleResolveAlert = async (alertId: number) => {
