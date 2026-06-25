@@ -21,6 +21,7 @@ class UserModel(Base):
     last_name = Column(String, nullable=True)
     medical_id = Column(String, nullable=True)
     push_token = Column(String, nullable=True)
+    telegram_chat_id = Column(String, nullable=True)
 
 
     # Relationships
@@ -39,6 +40,7 @@ class NeonateModel(Base):
     height = Column(Float, nullable=True)
     weight = Column(Float, nullable=True)
     age = Column(Integer, nullable=True)
+    gestational_age_weeks = Column(Float, nullable=True)
     
     parent_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     doctor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -82,3 +84,30 @@ class AuthorizedMedicalID(Base):
     id = Column(Integer, primary_key=True, index=True)
     medical_id = Column(String, unique=True, index=True, nullable=False)
     is_used = Column(Integer, default=0)  # 0 = false, 1 = true
+
+
+def compute_pca_weeks(birth_date, gestational_age_weeks) -> float | None:
+    """
+    Calcola l'eta' post-concezionale (PCA) in settimane, LIVE.
+    """
+    if birth_date is None or gestational_age_weeks is None:
+        return None
+
+    # Normalizza birth_date a datetime aware
+    if isinstance(birth_date, str):
+        try:
+            birth_date = datetime.datetime.fromisoformat(birth_date)
+        except ValueError:
+            return None
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    # Allinea i tzinfo per evitare errori di sottrazione naive/aware
+    if birth_date.tzinfo is None:
+        birth_date = birth_date.replace(tzinfo=datetime.timezone.utc)
+
+    days_of_life = (now - birth_date).total_seconds() / 86400.0
+    if days_of_life < 0:
+        days_of_life = 0.0
+
+    weeks_of_life = days_of_life / 7.0
+    return float(gestational_age_weeks) + weeks_of_life

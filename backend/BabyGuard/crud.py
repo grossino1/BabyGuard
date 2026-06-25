@@ -24,6 +24,16 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
     await db.refresh(db_user)
     return db_user
 
+def calculate_age_months(birth_date) -> int:
+    if not birth_date:
+        return 0
+    from datetime import datetime
+    now = datetime.now()
+    if hasattr(birth_date, "tzinfo") and birth_date.tzinfo is not None:
+        now = now.astimezone(birth_date.tzinfo)
+    delta = now - birth_date
+    return max(0, int(delta.days / 30.4375))
+
 # --- NEONATE CRUD ---
 async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, parent_id: int):
     neonate_data = neonate.model_dump()
@@ -43,6 +53,7 @@ async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, paren
     db.add(db_thresholds)
     
     await db.commit()
+    db_neonate.age = calculate_age_months(db_neonate.birth_date)
     return db_neonate
 
 async def get_neonates_by_parent(db: AsyncSession, parent_id: int):
@@ -50,7 +61,10 @@ async def get_neonates_by_parent(db: AsyncSession, parent_id: int):
         select(models.NeonateModel)
         .where(models.NeonateModel.parent_id == parent_id)
     )
-    return result.scalars().all()
+    neonates = result.scalars().all()
+    for n in neonates:
+        n.age = calculate_age_months(n.birth_date)
+    return neonates
 
 async def delete_neonate(db: AsyncSession, neonate_id: int):
     from sqlalchemy import delete
@@ -69,11 +83,17 @@ async def get_neonates_by_doctor(db: AsyncSession, doctor_id: int):
         select(models.NeonateModel)
         .where(models.NeonateModel.doctor_id == doctor_id)
     )
-    return result.scalars().all()
+    neonates = result.scalars().all()
+    for n in neonates:
+        n.age = calculate_age_months(n.birth_date)
+    return neonates
 
 async def get_neonates(db: AsyncSession, skip: int = 0, limit: int = 100):
     result = await db.execute(select(models.NeonateModel).offset(skip).limit(limit))
-    return result.scalars().all()
+    neonates = result.scalars().all()
+    for n in neonates:
+        n.age = calculate_age_months(n.birth_date)
+    return neonates
 
 
 

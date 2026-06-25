@@ -60,11 +60,6 @@ function decodeBase64(input: string): string {
 }
 
 async function registerForPushNotificationsAsync() {
-  if (!Device.isDevice) {
-    console.log('Must use physical device for Push Notifications');
-    throw new Error("Devi usare un dispositivo fisico per le notifiche push");
-  }
-
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
       name: 'default',
@@ -74,36 +69,11 @@ async function registerForPushNotificationsAsync() {
     });
   }
 
-  console.log("1 - Richiedo permessi");
   const { status } = await Notifications.requestPermissionsAsync();
-  console.log("2 - Permission status:", status);
-
   if (status !== 'granted') {
-    throw new Error("Permesso notifiche non concesso");
+    console.warn("Permesso notifiche non concesso");
   }
-
-  console.log("3 - Leggo projectId");
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId;
-  console.log("4 - Project ID:", projectId);
-
-  if (!projectId) {
-    console.warn("ATTENZIONE: projectId EAS mancante in app.json. Le notifiche push reali sono disabilitate.");
-    return null;
-  }
-
-  console.log("5 - Genero Expo Push Token");
-  try {
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
-    console.log("6 - Token data:", tokenData);
-    return tokenData.data;
-  } catch (e: any) {
-    console.warn("Errore getExpoPushTokenAsync:", e.message);
-    return null;
-  }
+  return null;
 }
 
 // --- TYPES & INTERFACES ---
@@ -201,9 +171,16 @@ export default function App() {
   const lastDataTimestampRef = useRef<number>(0);
   const [shirtConnected, setShirtConnected] = useState<boolean>(false);
   const [rawEcgBuffer, setRawEcgBuffer] = useState<number[]>([]);
-  const pendingEcgSamplesRef = useRef<number[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [associateDeviceId, setAssociateDeviceId] = useState('');
+
+  // Telegram Integration State
+  const [telegramAssociated, setTelegramAssociated] = useState<boolean>(false);
+  const [telegramChatId, setTelegramChatId] = useState<string | null>(null);
+  const [telegramCode, setTelegramCode] = useState<string | null>(null);
+  const [legendExpanded, setLegendExpanded] = useState(false);
+  const [telegramLoading, setTelegramLoading] = useState<boolean>(false);
+  const [telegramBotUsername, setTelegramBotUsername] = useState<string>('BabyGuardNotifyBot');
 
   // Doctor Modals & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -220,6 +197,7 @@ export default function App() {
   const [babyFirstName, setBabyFirstName] = useState('');
   const [babyLastName, setBabyLastName] = useState('');
   const [babyBirthDate, setBabyBirthDate] = useState('2026-06-19T00:00:00Z');
+  const [babyGestationalAge, setBabyGestationalAge] = useState('40.0');
   const [babyGender, setBabyGender] = useState('M');
   const [babyDeviceId, setBabyDeviceId] = useState('');
   const [babyHeight, setBabyHeight] = useState('');
@@ -555,6 +533,7 @@ export default function App() {
 
     fetchNeonates();
     fetchDoctors();
+    fetchTelegramStatus(token);
   }, [token, backendIp]);
 
   // --- REUSABLE DATA FETCHERS ---
@@ -583,6 +562,74 @@ export default function App() {
       }
     } catch (e) {
       console.error('Fetch alerts error:', e);
+    }
+  };
+
+  const fetchTelegramStatus = async (currentToken: string) => {
+    if (!currentToken) return;
+    try {
+      setTelegramLoading(true);
+      const resp = await fetch(`${API_URL}/api/telegram/status`, {
+        headers: { 'Authorization': `Bearer ${currentToken}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setTelegramAssociated(data.associated);
+        setTelegramChatId(data.chat_id);
+      }
+    } catch (e) {
+      console.error('Fetch Telegram status error:', e);
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  const handleGenerateTelegramCode = async () => {
+    if (!token) return;
+    try {
+      setTelegramLoading(true);
+      const resp = await fetch(`${API_URL}/api/telegram/generate-code`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setTelegramCode(data.code);
+        if (data.bot_username) {
+          setTelegramBotUsername(data.bot_username);
+        }
+      } else {
+        Alert.alert('Errore', 'Impossibile generare il codice Telegram.');
+      }
+    } catch (e) {
+      console.error('Generate Telegram code error:', e);
+      Alert.alert('Errore', 'Errore di connessione al server.');
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  const handleUnlinkTelegram = async () => {
+    if (!token) return;
+    try {
+      setTelegramLoading(true);
+      const resp = await fetch(`${API_URL}/api/telegram/unlink`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        setTelegramAssociated(false);
+        setTelegramChatId(null);
+        setTelegramCode(null);
+        Alert.alert('Successo', 'Associazione Telegram rimossa.');
+      } else {
+        Alert.alert('Errore', 'Impossibile scollegare Telegram.');
+      }
+    } catch (e) {
+      console.error('Unlink Telegram error:', e);
+      Alert.alert('Errore', 'Errore di connessione al server.');
+    } finally {
+      setTelegramLoading(false);
     }
   };
 
@@ -670,6 +717,17 @@ export default function App() {
                 return [msg.alert, ...prev];
               });
               fetchAhi(selectedNeonate.id, token);
+
+              // Notifica locale immediata
+              Notifications.scheduleNotificationAsync({
+                content: {
+                  title: `🚨 Allerta BabyGuard - ${msg.alert.type.toUpperCase()}`,
+                  body: `${selectedNeonate.first_name} ${selectedNeonate.last_name}: ${msg.alert.message}`,
+                  sound: true,
+                  priority: Notifications.AndroidNotificationPriority.MAX,
+                },
+                trigger: null,
+              }).catch((err) => console.error("Errore notifica locale:", err));
             }
           } else if (msg.event === 'alert_resolved') {
             if (msg.neonate_id === selectedNeonate.id) {
@@ -700,12 +758,14 @@ export default function App() {
                   return [...prevSamples.slice(-15), smoothHr];
                 });
               }
-              // Accoda i campioni ricevuti al buffer in attesa per l'aggiornamento fluido
+              // Salvataggio dei campioni ECG per il grafico real-time
               if (type === 'ECG' && payload.samples && Array.isArray(payload.samples)) {
-                pendingEcgSamplesRef.current.push(...payload.samples);
-                if (pendingEcgSamplesRef.current.length > 1000) {
-                  pendingEcgSamplesRef.current = pendingEcgSamplesRef.current.slice(-500);
-                }
+                const newSamples = payload.samples;
+                setRawEcgBuffer((prev) => {
+                  // Mantiene gli ultimi 150 campioni per una visualizzazione ottimale a schermo
+                  const combined = [...prev, ...newSamples];
+                  return combined.slice(-150);
+                });
               }
             } else if (type === 'TEMPERATURE') {
               let temp = payload.temperature;
@@ -791,39 +851,10 @@ export default function App() {
         setShirtConnected(false);
         setLiveData({});
         setRawEcgBuffer([]);
-        pendingEcgSamplesRef.current = [];
       }
     }, 2000);
     return () => clearInterval(interval);
   }, [wsConnected]);
-
-  // --- ECG SMOOTH FEED TICKER ---
-  useEffect(() => {
-    // Eseguiamo un tick ogni 30ms (~33 FPS) per aggiornare il grafico in modo continuo e fluido
-    const interval = setInterval(() => {
-      const pendingCount = pendingEcgSamplesRef.current.length;
-      if (pendingCount === 0) return;
-
-      // Adattamento dinamico della velocità per mantenere sincronia ed evitare lag:
-      // Standard: 4 campioni ogni 30ms (circa 133/s, leggermente sopra i 128Hz di campionamento)
-      let chunkSize = 4;
-      if (pendingCount > 400) {
-        chunkSize = 12; // recupero rapido
-      } else if (pendingCount > 200) {
-        chunkSize = 8;  // recupero medio
-      }
-
-      const chunk = pendingEcgSamplesRef.current.slice(0, chunkSize);
-      pendingEcgSamplesRef.current = pendingEcgSamplesRef.current.slice(chunkSize);
-
-      setRawEcgBuffer((prev) => {
-        const combined = [...prev, ...chunk];
-        return combined.slice(-150);
-      });
-    }, 30);
-
-    return () => clearInterval(interval);
-  }, []);
 
   // --- RESOLVE ALERT (Acknowledge) ---
   const handleResolveAlert = async (alertId: number) => {
@@ -1040,6 +1071,13 @@ export default function App() {
       }
     }
 
+    if (babyGestationalAge.trim()) {
+      const gAge = parseFloat(babyGestationalAge.trim());
+      if (isNaN(gAge) || gAge < 20 || gAge > 46) {
+        errs.gestationalAge = "L'età gestazionale deve essere tra 20 e 46 settimane.";
+      }
+    }
+
     setBabyErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -1073,7 +1111,8 @@ export default function App() {
           doctor_id: selectedDoctorId,
           height: babyHeight.trim() ? parseFloat(babyHeight.trim()) : null,
           weight: babyWeight.trim() ? parseFloat(babyWeight.trim()) : null,
-          age: babyAge.trim() ? parseInt(babyAge.trim()) : null
+          age: babyAge.trim() ? parseInt(babyAge.trim()) : null,
+          gestational_age_weeks: babyGestationalAge.trim() ? parseFloat(babyGestationalAge.trim()) : null
         })
       });
 
@@ -1374,22 +1413,89 @@ export default function App() {
         </View>
       </View>
 
-      {/* IP CONFIG DRAWER */}
+      {/* IP CONFIG & SETTINGS DRAWER */}
       {showConfig && (
         <View style={styles.configDrawer}>
-          <Text style={styles.configLabel}>IP Server Backend:</Text>
-          <View style={styles.ipInputRow}>
-            <TextInput
-              style={styles.ipInput}
-              value={backendIp}
-              onChangeText={setBackendIp}
-              placeholder="es. 192.168.1.15"
-              placeholderTextColor="#888"
-            />
-            <TouchableOpacity onPress={() => setShowConfig(false)} style={styles.saveIpBtn}>
-              <Text style={styles.saveIpBtnText}>OK</Text>
+          <View style={styles.drawerHeader}>
+            <Text style={styles.configLabel}>⚙️ Impostazioni</Text>
+            <TouchableOpacity onPress={() => setShowConfig(false)} style={styles.closeDrawerBtn}>
+              <Text style={styles.closeDrawerText}>Chiudi ✕</Text>
             </TouchableOpacity>
           </View>
+
+          <View style={styles.configSection}>
+            <Text style={styles.configSubLabel}>IP Server Backend:</Text>
+            <View style={styles.ipInputRow}>
+              <TextInput
+                style={styles.ipInput}
+                value={backendIp}
+                onChangeText={setBackendIp}
+                placeholder="es. 192.168.1.15"
+                placeholderTextColor="#888"
+              />
+            </View>
+          </View>
+
+          {token && (
+            <View style={[styles.configSection, { marginTop: 15, borderTopWidth: 1, borderTopColor: '#1F3A52', paddingTop: 15 }]}>
+              <Text style={styles.configSubLabel}>🤖 Notifiche Bot Telegram:</Text>
+              
+              {telegramLoading ? (
+                <ActivityIndicator size="small" color="#00D2C4" style={{ marginVertical: 10 }} />
+              ) : telegramAssociated ? (
+                <View style={styles.telegramStatusCard}>
+                  <Text style={styles.telegramStatusText}>
+                    🟢 Telegram collegato con successo!
+                  </Text>
+                  {telegramChatId && (
+                    <Text style={styles.telegramSubText}>Chat ID: {telegramChatId}</Text>
+                  )}
+                  <TouchableOpacity onPress={handleUnlinkTelegram} style={styles.telegramUnlinkBtn}>
+                    <Text style={styles.telegramUnlinkBtnText}>Rimuovi associazione 🔌</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.telegramStatusCard}>
+                  <Text style={styles.telegramStatusText}>
+                    🔴 Nessun account Telegram collegato.
+                  </Text>
+                  <Text style={styles.telegramInfoText}>
+                    Collega il tuo account per ricevere alert critici direttamente su Telegram.
+                  </Text>
+                  
+                  {telegramCode ? (
+                    <View style={styles.telegramCodeContainer}>
+                      <Text style={styles.telegramCodeLabel}>Codice di associazione:</Text>
+                      <Text style={styles.telegramCode}>{telegramCode}</Text>
+                      
+                      <TouchableOpacity 
+                        onPress={() => Linking.openURL(`https://t.me/${telegramBotUsername}?start=${telegramCode}`)}
+                        style={[styles.telegramLinkBtn, { backgroundColor: '#0088CC', width: '100%', marginBottom: 12, paddingVertical: 10 }]}
+                      >
+                        <Text style={styles.telegramLinkBtnText}>💬 Apri Chat e Collega</Text>
+                      </TouchableOpacity>
+
+                      <Text style={styles.telegramInstructions}>
+                        Premi il pulsante azzurro sopra per aprire Telegram. Si aprirà la chat del Bot <Text style={{fontWeight: 'bold', color: '#00D2C4'}}>@{telegramBotUsername}</Text> con il codice già inserito.{"\n"}
+                        Ti basterà premere su <Text style={{fontWeight: 'bold', color: '#FFF'}}>"AVVIA" / "START"</Text> per completare l'associazione!{"\n\n"}
+                        Al termine, premi il tasto sotto per aggiornare lo stato.
+                      </Text>
+                      <TouchableOpacity 
+                        onPress={() => fetchTelegramStatus(token)} 
+                        style={styles.telegramVerifyBtn}
+                      >
+                        <Text style={styles.telegramVerifyBtnText}>🔄 Verifica Associazione</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={handleGenerateTelegramCode} style={styles.telegramLinkBtn}>
+                      <Text style={styles.telegramLinkBtnText}>🔗 Collega Telegram</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
         </View>
       )}
 
@@ -1918,52 +2024,64 @@ export default function App() {
               {/* ONLY FOR PARENT: MEDICAL ACRONYMS LEGEND */}
               {role === 'parent' && (
                 <View style={styles.legendCard}>
-                  <Text style={styles.cardSectionTitle}>📘 Glossario termini tecnici</Text>
-                  <Text style={styles.legendSubtitle}>
-                    Questa guida ti aiuta a comprendere il significato dei parametri clinici e degli allarmi rilevati dal sistema.
-                  </Text>
-                  
-                  <View style={styles.legendItem}>
-                    <Text style={styles.legendTerm}>SIDS (Sudden Infant Death Syndrome)</Text>
-                    <Text style={styles.legendDesc}>
-                      Sindrome della morte improvvisa del lattante. Il sistema monitora la posizione prona (a pancia in giù) e la mancanza prolungata di respiro (apnea) proprio per prevenire e minimizzare questo rischio.
-                    </Text>
-                  </View>
+                  <TouchableOpacity
+                    onPress={() => setLegendExpanded(!legendExpanded)}
+                    style={styles.legendHeader}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.cardSectionTitle}>📘 Glossario termini tecnici</Text>
+                    <Text style={styles.legendToggleIcon}>{legendExpanded ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
 
-                  <View style={styles.legendItem}>
-                    <Text style={styles.legendTerm}>ALTE (Apparent Life-Threatening Event)</Text>
-                    <Text style={styles.legendDesc}>
-                      Episodio di apparente minaccia per la vita. Si verifica quando una pausa respiratoria (apnea) si associa a un forte rallentamento del battito cardiaco (bradicardia) e a rilassamento muscolare (ipotonia). Richiede immediata attenzione.
-                    </Text>
-                  </View>
+                  {legendExpanded && (
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={styles.legendSubtitle}>
+                        Questa guida ti aiuta a comprendere il significato dei parametri clinici e degli allarmi rilevati dal sistema.
+                      </Text>
+                      
+                      <View style={styles.legendItem}>
+                        <Text style={styles.legendTerm}>SIDS (Sudden Infant Death Syndrome)</Text>
+                        <Text style={styles.legendDesc}>
+                          Sindrome della morte improvvisa del lattante. Il sistema monitora la posizione prona (a pancia in giù) e la mancanza prolungata di respiro (apnea) proprio per prevenire e minimizzare questo rischio.
+                        </Text>
+                      </View>
 
-                  <View style={styles.legendItem}>
-                    <Text style={styles.legendTerm}>IPOTONIA</Text>
-                    <Text style={styles.legendDesc}>
-                      Diminuzione insolita del tono muscolare (il neonato appare insolitamente debole o privo di tono). Viene monitorato tramite i sensori di movimento della maglietta.
-                    </Text>
-                  </View>
+                      <View style={styles.legendItem}>
+                        <Text style={styles.legendTerm}>ALTE (Apparent Life-Threatening Event)</Text>
+                        <Text style={styles.legendDesc}>
+                          Episodio di apparente minaccia per la vita. Si verifica quando una pausa respiratoria (apnea) si associa a un forte rallentamento del battito cardiaco (bradicardia) e a rilassamento muscolare (ipotonia). Richiede immediata attenzione.
+                        </Text>
+                      </View>
 
-                  <View style={styles.legendItem}>
-                    <Text style={styles.legendTerm}>APNEA</Text>
-                    <Text style={styles.legendDesc}>
-                      Interruzione temporanea della respirazione (pausa del respiro) per un tempo superiore ai 10-20 secondi.
-                    </Text>
-                  </View>
+                      <View style={styles.legendItem}>
+                        <Text style={styles.legendTerm}>IPOTONIA</Text>
+                        <Text style={styles.legendDesc}>
+                          Diminuzione insolita del tono muscolare (il neonato appare insolitamente debole o privo di tono). Viene monitorato tramite i sensori di movimento della maglietta.
+                        </Text>
+                      </View>
 
-                  <View style={styles.legendItem}>
-                    <Text style={styles.legendTerm}>BRADICARDIA / TACHICARDIA</Text>
-                    <Text style={styles.legendDesc}>
-                      Frequenza cardiaca rispettivamente troppo bassa (bradicardia) o troppo alta (tachicardia) rispetto alle soglie di sicurezza stabilite dal pediatra.
-                    </Text>
-                  </View>
+                      <View style={styles.legendItem}>
+                        <Text style={styles.legendTerm}>APNEA</Text>
+                        <Text style={styles.legendDesc}>
+                          Interruzione temporanea della respirazione (pausa del respiro) per un tempo superiore ai 10-20 secondi.
+                        </Text>
+                      </View>
 
-                  <View style={styles.legendItem}>
-                    <Text style={styles.legendTerm}>IPOTERMIA / IPERTERMIA</Text>
-                    <Text style={styles.legendDesc}>
-                      Temperatura corporea cutanea rispettivamente troppo bassa (ipotermia) o troppo alta/in aumento costante (ipertermia/surriscaldamento). Un surriscaldamento corporeo è un noto fattore di rischio per la SIDS.
-                    </Text>
-                  </View>
+                      <View style={styles.legendItem}>
+                        <Text style={styles.legendTerm}>BRADICARDIA / TACHICARDIA</Text>
+                        <Text style={styles.legendDesc}>
+                          Frequenza cardiaca rispettivamente troppo bassa (bradicardia) o troppo alta (tachicardia) rispetto alle soglie di sicurezza stabilite dal pediatra.
+                        </Text>
+                      </View>
+
+                      <View style={styles.legendItem}>
+                        <Text style={styles.legendTerm}>IPOTERMIA / IPERTERMIA</Text>
+                        <Text style={styles.legendDesc}>
+                          Temperatura corporea cutanea rispettivamente troppo bassa (ipotermia) o troppo alta/in aumento costante (ipertermia/surriscaldamento). Un surriscaldamento corporeo è un noto fattore di rischio per la SIDS.
+                        </Text>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
             </ScrollView>
@@ -2240,6 +2358,22 @@ export default function App() {
                 <Text style={styles.errorText}>{babyErrors.age}</Text>
               ) : null}
 
+              <Text style={styles.modalLabel}>Età Gestazionale alla Nascita (settimane):</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.gestationalAge && styles.inputError]}
+                value={babyGestationalAge}
+                onChangeText={(text) => {
+                  setBabyGestationalAge(text);
+                  if (babyErrors.gestationalAge) setBabyErrors(prev => ({ ...prev, gestationalAge: '' }));
+                }}
+                placeholder="es. 38.5 (default 40.0)"
+                placeholderTextColor="#888"
+                keyboardType="numeric"
+              />
+              {babyErrors.gestationalAge ? (
+                <Text style={styles.errorText}>{babyErrors.gestationalAge}</Text>
+              ) : null}
+
               <Text style={styles.modalLabel}>Altezza del Bambino (cm):</Text>
               <TextInput
                 style={[styles.modalInput, babyErrors.height && styles.inputError]}
@@ -2410,6 +2544,116 @@ const styles = StyleSheet.create({
   },
   saveIpBtnText: {
     color: '#000',
+    fontWeight: 'bold',
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  closeDrawerBtn: {
+    padding: 4,
+  },
+  closeDrawerText: {
+    color: '#FF4A5A',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  configSection: {
+    marginBottom: 8,
+  },
+  configSubLabel: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  telegramStatusCard: {
+    backgroundColor: '#0F1A2C',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#1F3A52',
+  },
+  telegramStatusText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  telegramSubText: {
+    color: '#888',
+    fontSize: 11,
+    marginBottom: 8,
+  },
+  telegramInfoText: {
+    color: '#AAA',
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  telegramLinkBtn: {
+    backgroundColor: '#0088CC',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  telegramLinkBtnText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  telegramUnlinkBtn: {
+    backgroundColor: '#FF4A5A',
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  telegramUnlinkBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  telegramCodeContainer: {
+    marginTop: 8,
+    alignItems: 'center',
+    backgroundColor: '#1E2C3D',
+    borderRadius: 8,
+    padding: 10,
+  },
+  telegramCodeLabel: {
+    color: '#AAA',
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  telegramCode: {
+    color: '#00D2C4',
+    fontSize: 24,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    marginVertical: 4,
+  },
+  telegramInstructions: {
+    color: '#CCC',
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'left',
+    width: '100%',
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  telegramVerifyBtn: {
+    backgroundColor: '#00D2C4',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    width: '100%',
+  },
+  telegramVerifyBtnText: {
+    color: '#0A1926',
+    fontSize: 12,
     fontWeight: 'bold',
   },
   authContainer: {
@@ -2777,6 +3021,16 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     borderWidth: 1,
     borderColor: '#1F3E57',
+  },
+  legendHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  legendToggleIcon: {
+    color: '#47C1B0',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   legendSubtitle: {
     color: '#888',

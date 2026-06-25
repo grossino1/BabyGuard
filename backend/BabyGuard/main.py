@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, 
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, text
 from typing import List, Optional
 import jwt
 import asyncio
@@ -12,7 +12,7 @@ import re
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from . import models, schemas, auth, crud, database, mqtt_handler
+from . import models, schemas, auth, crud, database, mqtt_handler, telegram_bot
 from .influx_manager import influx_manager
 
 app = FastAPI(title="BabyGuard IoMT API")
@@ -54,6 +54,15 @@ async def startup():
     async with database.engine.begin() as conn:
         # Crea tutte le tabelle se non esistono
         await conn.run_sync(models.Base.metadata.create_all)
+        # Migrazione per aggiungere la colonna telegram_chat_id se non esiste
+        try:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE neonates ADD COLUMN gestational_age_weeks FLOAT"))
+        except Exception:
+            pass
     
     # Pre-populate authorized medical IDs if empty
     async with database.AsyncSessionLocal() as session:
@@ -78,6 +87,8 @@ async def startup():
     asyncio.create_task(mqtt_handler.mqtt_loop())
     # Avvia il monitoraggio periodico delle apnee in background
     asyncio.create_task(mqtt_handler.apnea_monitor_loop())
+    # Avvia il loop di polling per Telegram
+    asyncio.create_task(telegram_bot.start_telegram_polling())
 
 # --- WEBSOCKET ENDPOINT ---
 @app.websocket("/ws/{neonate_id}")
@@ -89,7 +100,9 @@ async def websocket_endpoint(websocket: WebSocket, neonate_id: int):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# --- SSE ENDPOINT ---
+# --- SSE ENDPOINT (Legacy/Alternativo) ---
+# NOTA: Questo endpoint implementa Server-Sent Events ma non è attualmente utilizzato
+# dal frontend mobile (che si connette interamente tramite il canale WebSocket /ws/{neonate_id}).
 @app.get("/sse/{neonate_id}")
 async def sse_endpoint(neonate_id: int):
     return StreamingResponse(
@@ -225,6 +238,36 @@ async def register_token(
         "token": payload.token
     }
 
+@app.post("/api/telegram/generate-code")
+async def generate_telegram_code(
+    current_user: models.UserModel = Depends(get_current_user),
+):
+    code = telegram_bot.generate_link_code(current_user.id)
+    return {
+        "code": code,
+        "bot_username": telegram_bot.BOT_USERNAME
+    }
+
+@app.get("/api/telegram/status")
+async def get_telegram_status(
+    current_user: models.UserModel = Depends(get_current_user),
+):
+    return {
+        "associated": current_user.telegram_chat_id is not None,
+        "chat_id": current_user.telegram_chat_id
+    }
+
+@app.post("/api/telegram/unlink")
+async def unlink_telegram(
+    current_user: models.UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(database.get_db)
+):
+    current_user.telegram_chat_id = None
+    await db.commit()
+    return {"message": "Associazione Telegram rimossa"}
+
+# NOTA: Endpoint legacy per l'invio manuale di notifiche push remote a Expo.
+# Non più utilizzato in produzione a seguito della migrazione ad allarmi interamente locali.
 @app.post("/send-notification")
 async def send_notification(
     payload: SendNotificationRequest,

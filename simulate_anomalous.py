@@ -7,7 +7,7 @@ import math
 import random
 import paho.mqtt.client as mqtt
 
-# Default configuration
+# Configurazione di default
 DEFAULT_BROKER = "localhost"
 DEFAULT_PORT = 1883
 DEFAULT_FILE = "esempio_messaggi_unisadiemsmartshirttshirt001.txt"
@@ -41,53 +41,70 @@ def parse_messages(file_path):
 def generate_dynamic_payload(topic, payload, device_index, device_id):
     parts = topic.split("/")
     if len(parts) < 4:
-        return payload
+        return payload, "Normale"
     
     message_type = parts[3]
     now_t = time.time()
     
-    # 60-second cycle for anomalous scenarios
-    t_cycle = int(now_t) % 60
+    # Ciclo di 120 secondi per coprire tutti gli scenari
+    t_cycle = int(now_t) % 120
     
-    # Defaults
-    orient_val = 32  # 32 = Supine
-    hr_bpm = 120
-    br_bpm = 30
+    # Valori di default (Stato Normale)
+    orient_val = 32  # 32 = Supina
+    hr_bpm = 125
+    br_bpm = 35
     temp_val = 36.5
+    sim_status = "Normale"
     
-    # Phase 1: Weak breathing / Hyperventilation (0s to 20s)
-    if t_cycle < 20:
+    # FASE 1: Respiro Periodico (0s - 30s)
+    # Alterna 4 secondi di apnea e 4 secondi di respiro normale
+    if t_cycle < 30:
+        sim_status = "Respiro Periodico (Pausa/Normale)"
         orient_val = 32
-        hr_bpm = 120
-        # Alternates between weak breathing (14 breaths/min) and hyperventilation (70 breaths/min)
-        br_bpm = 14 if (t_cycle % 10 < 5) else 70
+        hr_bpm = 125
+        temp_val = 36.5
+        is_flat_phase = (t_cycle % 8 < 4)
+        br_bpm = 0 if is_flat_phase else 35
+        
+    # FASE 2: Bradicardia Estrema Sostenuta PCA-dipendente (30s - 60s)
+    # Battito cardiaco a 75 BPM (inferiore alla soglia di 80/100 BPM per oltre 10 secondi)
+    elif t_cycle < 60:
+        sim_status = "Bradicardia Estrema (75 BPM)"
+        orient_val = 32
+        hr_bpm = 75
+        br_bpm = 30
         temp_val = 36.5
         
-    # Phase 2: Moderate Hypothermia / Hyperthermia (20s to 40s)
-    elif t_cycle < 40:
+    # FASE 3: Caduta e Immobilità (60s - 80s)
+    # Genera un forte impatto al secondo 63/64 (spike >3g) seguito da immobilità (1g costante)
+    elif t_cycle < 80:
+        sim_status = "Caduta & Immobilità"
         orient_val = 32
         hr_bpm = 120
         br_bpm = 30
-        # Low temp 35.3 °C (triggers ipotermia) or high temp 38.2 °C (triggers temp alert but not trend alarm because it's flat)
-        temp_val = 35.3 if (t_cycle % 10 < 5) else 38.2
-        
-    # Phase 3: Mild Bradycardia / Tachycardia & short prone position (40s to 60s)
-    else:
-        # Alternates between bradycardia (85 BPM) and tachycardia (175 BPM)
-        hr_bpm = 85 if (t_cycle % 10 < 5) else 175
-        br_bpm = 32
         temp_val = 36.5
-        # Alternates orientation: turns prone (16) only for 4 seconds, then back to side (2)
-        # 4 seconds is below the 10-second persistence filter, so it should NOT trigger SIDS Position alert
-        orient_val = 16 if (t_cycle % 10 < 4) else 2
         
-    # Apply minor offset for multiple devices
-    if t_cycle < 20 or t_cycle >= 40:
-        temp_val += device_index * 0.05
-        hr_bpm += device_index * 3
-        br_bpm += device_index * 1
+    # FASE 4: Anomalie Standard (80s - 120s)
+    else:
+        sub_cycle = t_cycle - 80 # Finestra di 40s (0-40)
+        if sub_cycle < 15:
+            sim_status = "Respiro Debole / Iperventilazione"
+            br_bpm = 14 if (sub_cycle % 10 < 5) else 70
+        elif sub_cycle < 30:
+            sim_status = "Ipotermia / Febbre"
+            temp_val = 35.3 if (sub_cycle % 10 < 5) else 38.2
+        else:
+            sim_status = "Tachicardia / Posizione Prona SIDS"
+            hr_bpm = 85 if (sub_cycle % 10 < 5) else 175
+            orient_val = 16 if (sub_cycle % 10 < 4) else 2
+            
+    # Applica piccoli scostamenti per differenziare i dispositivi
+    if t_cycle >= 80 or t_cycle < 30:
+        if br_bpm > 0:
+            br_bpm += device_index * 1
+        hr_bpm += device_index * 2
 
-    # 1. ECG
+    # 1. Messaggi ECG (Frequenza Cardiaca)
     if message_type == "ECG":
         resp_drift = 40000.0 * math.sin(2 * math.pi * 0.2 * now_t + device_index)
         hr_freq = hr_bpm / 60.0
@@ -114,42 +131,65 @@ def generate_dynamic_payload(topic, payload, device_index, device_id):
         payload["heartrate"] = hr_bpm
         payload["status"] = 1
 
-    # 2. STRAINGAUGES_MIXED
+    # 2. Messaggi STRAINGAUGES_MIXED (Respirazione)
     elif message_type == "STRAINGAUGES_MIXED":
         s1, s2, s3 = [], [], []
         period = 0.075
-        br_freq = br_bpm / 60.0
-        for i in range(13):
-            t = now_t + (i * period)
-            breath = 90000.0 * math.sin(2 * math.pi * br_freq * t + device_index)
-            s1.append(2095000.0 + breath + random.uniform(-100, 100))
-            s2.append(2587000.0 + 1.1 * breath + random.uniform(-100, 100))
-            s3.append(random.uniform(-10, 10))
+        
+        if br_bpm == 0:
+            # Segnale respiratorio piatto (Apnea / Pausa)
+            s1 = [2095000.0 + random.uniform(-5, 5) for _ in range(13)]
+            s2 = [2587000.0 + random.uniform(-5, 5) for _ in range(13)]
+            s3 = [random.uniform(-2, 2) for _ in range(13)]
+        else:
+            # Onda respiratoria sinusoidale normale
+            br_freq = br_bpm / 60.0
+            for i in range(13):
+                t = now_t + (i * period)
+                breath = 90000.0 * math.sin(2 * math.pi * br_freq * t + device_index)
+                s1.append(2095000.0 + breath + random.uniform(-100, 100))
+                s2.append(2587000.0 + 1.1 * breath + random.uniform(-100, 100))
+                s3.append(random.uniform(-10, 10))
+                
         payload["samples_1"] = s1
         payload["samples_2"] = s2
         payload["samples_3"] = s3
         payload["breathrate"] = br_bpm
         payload["sample_period_press"] = 75
 
-    # 3. ACC_GYRO
+    # 3. Messaggi ACC_GYRO (Accelerometro / Caduta)
     elif message_type == "ACC_GYRO":
         s = []
-        for i in range(16):
-            t = now_t + (i / 16.0)
-            x = int(-4000 + 400 * math.sin(2 * math.pi * 0.15 * t + device_index))
-            y = int(-10000 + 300 * math.sin(2 * math.pi * 0.18 * t + device_index))
-            z = int(12000 + 500 * math.sin(2 * math.pi * 0.12 * t + device_index))
-            s.append({"x": x, "y": y, "z": z})
+        # Caso A: Siamo nella fase di caduta e nei secondi dell'impatto (secondo 63 o 64 del ciclo)
+        if t_cycle in (63, 64) and sim_status == "Caduta & Immobilità":
+            # Primo campione ha un picco violento (>3.0g, 1g ~ 16800 LSB, es. 60000 LSB)
+            s.append({"x": 60000, "y": 0, "z": 0})
+            # I restanti 15 campioni sono immobili (circa 1g verticale, z ~ 16800)
+            for _ in range(15):
+                s.append({"x": random.randint(-200, 200), "y": random.randint(-200, 200), "z": 16800 + random.randint(-300, 300)})
+        # Caso B: Altri secondi della fase di caduta -> Immobilità post-impatto
+        elif 60 <= t_cycle < 80 and sim_status == "Caduta & Immobilità":
+            for _ in range(16):
+                s.append({"x": random.randint(-200, 200), "y": random.randint(-200, 200), "z": 16800 + random.randint(-300, 300)})
+        # Caso C: Stato normale -> Oscillazioni/Movimenti fisiologici del neonato
+        else:
+            for i in range(16):
+                t = now_t + (i / 16.0)
+                x = int(-4000 + 400 * math.sin(2 * math.pi * 0.15 * t + device_index))
+                y = int(-10000 + 300 * math.sin(2 * math.pi * 0.18 * t + device_index))
+                z = int(12000 + 500 * math.sin(2 * math.pi * 0.12 * t + device_index))
+                s.append({"x": x, "y": y, "z": z})
+                
         payload["samples"] = s
         payload["sampling_frequency"] = 3
         payload["orientation"] = orient_val
 
-    # 4. TEMPERATURE
+    # 4. Messaggi TEMPERATURE
     elif message_type in ("TEMPERATURE", "TemperatureNTC"):
         payload["temperature"] = round(temp_val, 2)
         payload["type"] = "temperature"
 
-    # 5. BATTERY_INFO
+    # 5. Messaggi BATTERY_INFO
     elif message_type == "BATTERY_INFO":
         payload["state_of_charge"] = 92
         payload["voltage"] = 4120
@@ -159,10 +199,10 @@ def generate_dynamic_payload(topic, payload, device_index, device_id):
     elif message_type == "BABY_ORIENTATION":
         payload["orientation"] = orient_val
         
-    return payload
+    return payload, sim_status
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulatore Anomalie Moderate per BabyGuard")
+    parser = argparse.ArgumentParser(description="Simulatore Avanzato Anomalie/Cadute per BabyGuard")
     parser.add_argument("--broker", default=DEFAULT_BROKER, help="IP o hostname del broker MQTT")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Porta del broker MQTT")
     parser.add_argument("--file", default=DEFAULT_FILE, help="File dei messaggi di esempio")
@@ -170,7 +210,7 @@ def main():
     args = parser.parse_args()
     
     devices = [d.strip() for d in args.devices.split(",") if d.strip()]
-    print(f"Simulazione ANOMALIE per dispositivi: {devices}")
+    print(f"Simulazione AVANZATA BabyGuard per dispositivi: {devices}")
     
     message_groups = parse_messages(args.file)
     if not message_groups:
@@ -184,7 +224,9 @@ def main():
         while True:
             for sec_idx, group in enumerate(message_groups, 1):
                 current_epoch = int(time.time())
-                print(f"\n[Sim] Secondo {sec_idx}/{len(message_groups)} - Timestamp: {current_epoch}")
+                t_cycle = current_epoch % 120
+                
+                print(f"\n[Sim] Secondo {sec_idx}/{len(message_groups)} - Timestamp: {current_epoch} (Ciclo: {t_cycle}s)")
                 for device_idx, device_id in enumerate(devices):
                     vitals = {"HR": "-", "BR": "-", "Temp": "-", "Orient": "-", "Status": "Normale"}
                     for orig_topic, orig_payload in group:
@@ -198,7 +240,8 @@ def main():
                         else:
                             topic = orig_topic
                         
-                        payload = generate_dynamic_payload(topic, payload, device_idx, device_id)
+                        payload, sim_status = generate_dynamic_payload(topic, payload, device_idx, device_id)
+                        vitals["Status"] = sim_status
                         
                         # Estrai valori per la stampa
                         if len(topic_parts) >= 4:
@@ -207,7 +250,7 @@ def main():
                                 vitals["HR"] = f"{payload.get('heartrate')} BPM"
                             elif m_type == "STRAINGAUGES_MIXED":
                                 br = payload.get('breathrate')
-                                vitals["BR"] = f"{br}/min" if br > 0 else "0/min (APNEA!)"
+                                vitals["BR"] = f"{br}/min" if br > 0 else "0/min (PIATTO/PAUSA)"
                             elif m_type in ("TEMPERATURE", "TemperatureNTC"):
                                 vitals["Temp"] = f"{payload.get('temperature')}°C"
                             elif m_type == "ACC_GYRO":
@@ -223,7 +266,7 @@ def main():
                         client.publish(topic, json.dumps(payload))
                     
                     # Stampa log riepilogativo per la maglietta
-                    print(f"  -> [{device_id}] HR: {vitals['HR']} | BR: {vitals['BR']} | Temp: {vitals['Temp']} | Orientamento: {vitals['Orient']} | Stato: {vitals['Status']}")
+                    print(f"  -> [{device_id}] HR: {vitals['HR']} | BR: {vitals['BR']} | Temp: {vitals['Temp']} | Orientamento: {vitals['Orient']} | Stato Simulato: {vitals['Status']}")
                 time.sleep(1.0)
     except KeyboardInterrupt:
         pass

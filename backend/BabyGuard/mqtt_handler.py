@@ -6,8 +6,9 @@ import urllib.request
 import aiomqtt
 import traceback
 from sqlalchemy.ext.asyncio import AsyncSession
-from . import models, database, crud
+from . import models, database, crud, telegram_bot
 from .influx_manager import influx_manager
+from .models import compute_pca_weeks
 
 MQTT_BROKER = "mosquitto" # Name of the service in docker-compose
 MQTT_PORT = 1883
@@ -38,6 +39,13 @@ class DeviceState:
         self.last_apnea_alert_time = 0
         self.last_alte_alert_time = 0
         self.last_position_alert_time = 0
+        # --- Nuovi algoritmi: caduta, respiro periodico, bradicardia PCA ---
+        self.last_fall_alert_time = 0
+        self.last_periodic_alert_time = 0
+        self.brady_run_start = None
+        self.last_brady_alert_time = 0
+        self.is_online = True
+        self.last_offline_alert_time = 0
 
 # Global in-memory cache for wearable devices
 device_states = {}
@@ -322,6 +330,216 @@ async def check_alte_conditions(db: AsyncSession, neonate: models.NeonateModel, 
                 return True
     return False
 
+# ============================================================================
+#  HELPER SOGLIE PCA-DIPENDENTI
+# ============================================================================
+def derive_apnea_threshold(pca_weeks) -> int:
+    """Durata (s) oltre cui l'apnea e' grave (McCoy): 20s pretermine (<40 sett), 15s a termine."""
+    if pca_weeks is None:
+        return 15
+    return 20 if pca_weeks < 40 else 15
+
+
+def derive_brady_threshold(pca_weeks) -> int:
+    """Soglia bpm bradicardia extreme-event (ALTE Q8): <60 se PCA<44 sett, <50 se PCA>=44."""
+    if pca_weeks is None:
+        return 60
+    return 60 if pca_weeks < 44 else 50
+
+
+def get_neonate_pca(neonate) -> float:
+    """Calcola la PCA live da birth_date + gestational_age_weeks."""
+    return compute_pca_weeks(
+        getattr(neonate, "birth_date", None),
+        getattr(neonate, "gestational_age_weeks", None),
+    )
+
+
+# ============================================================================
+#  RILEVAMENTO CADUTA (Noury: impatto + immobilita')
+#  Scenario neonatale: caduta da culla/letto/braccia (AAP 2022).
+#  Scala calibrata sui dati reali ACC_GYRO: 1g ~ 16800 LSB.
+# ============================================================================
+ACC_LSB_PER_G = 16800.0
+FALL_IMPACT_G = 3.0          # DA VALIDARE sul dispositivo reale
+FALL_STILL_VAR_MAX = 4.0e6
+FALL_STILL_RATIO = 0.6
+
+async def check_fall_detection(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, acc_samples: list):
+    """Caduta: picco d'impatto seguito da immobilita'. acc_samples = finestra grezza {x,y,z}."""
+    if not acc_samples or len(acc_samples) < 4:
+        return
+
+    def magnitude(s):
+        x = s.get("x", 0.0); y = s.get("y", 0.0); z = s.get("z", 0.0)
+        return math.sqrt(x * x + y * y + z * z)
+
+    impact_lsb = FALL_IMPACT_G * ACC_LSB_PER_G
+    one_g = ACC_LSB_PER_G
+    magnitudes = [magnitude(s) for s in acc_samples]
+
+    peak_idx = None
+    peak_val = 0.0
+    for i, mag in enumerate(magnitudes):
+        if mag > impact_lsb and mag > peak_val:
+            peak_val = mag
+            peak_idx = i
+
+    if peak_idx is None:
+        return
+
+    post = magnitudes[peak_idx + 1:]
+    alert_type = None
+    alert_msg = ""
+    severity = "critical"
+
+    if len(post) < 3:
+        alert_type = "Fall"
+        alert_msg = f"⚠️ POSSIBILE CADUTA\n\nRilevato impatto accelerometrico ({peak_val / one_g:.1f} g). Verificare immediatamente il neonato."
+        severity = "high"
+    else:
+        mean_post = sum(post) / len(post)
+        var_post = sum((m - mean_post) ** 2 for m in post) / len(post)
+        still_count = sum(1 for m in post if abs(m - one_g) < one_g * 0.4)
+        still_ratio = still_count / len(post)
+        is_still = (var_post < FALL_STILL_VAR_MAX) and (still_ratio >= FALL_STILL_RATIO)
+
+        if is_still:
+            alert_type = "Fall"
+            alert_msg = f"🚨 CADUTA RILEVATA\n\nImpatto di {peak_val / one_g:.1f} g seguito da immobilita'. Possibile caduta dalla culla, dal letto o dalle braccia. Verificare immediatamente il neonato!"
+            severity = "critical"
+        else:
+            return
+
+    now = time.time()
+    last_sent = getattr(state, "last_fall_alert_time", 0)
+    if now - last_sent > 30:
+        state.last_fall_alert_time = now
+        db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+        print(f"[ALERT FALL] {neonate.first_name}: {alert_msg}")
+
+        alert_message = {
+            "event": "alert",
+            "neonate_id": neonate.id,
+            "device_id": device_id,
+            "alert": {
+                "id": db_alert.id,
+                "type": db_alert.type,
+                "message": db_alert.message,
+                "severity": db_alert.severity,
+                "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                "is_resolved": bool(db_alert.is_resolved)
+            }
+        }
+
+        await send_push_notification(db, neonate, alert_msg)
+        if manager:
+            await manager.broadcast(alert_message)
+        if sse_queue:
+            await sse_queue.put(alert_message)
+
+
+# ============================================================================
+#  RESPIRO PERIODICO (McCoy: >=2 pause <10s entro 20s)
+#  Richiede get_breath_gaps in influx_manager (vedi note). PREDISPOSTO.
+# ============================================================================
+PERIODIC_SHORT_GAP_MAX = 10.0
+PERIODIC_MIN_EVENTS = 2
+
+async def check_periodic_breathing(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, breath_gaps: list):
+    """Respiro periodico: >=2 pause respiratorie brevi (<10s) ravvicinate."""
+    if not breath_gaps:
+        return
+
+    short_gaps = [g for g in breath_gaps if 0 < g < PERIODIC_SHORT_GAP_MAX]
+    if len(short_gaps) < PERIODIC_MIN_EVENTS:
+        return
+
+    alert_type = "PeriodicBreathing"
+    alert_msg = f"⚠️ RESPIRO PERIODICO\n\nRilevate {len(short_gaps)} pause respiratorie brevi (<10s) ravvicinate. Pattern di instabilita' respiratoria da monitorare."
+    severity = "medium"
+
+    now = time.time()
+    last_sent = getattr(state, "last_periodic_alert_time", 0)
+    if now - last_sent > 30:
+        state.last_periodic_alert_time = now
+        db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+        print(f"[ALERT PERIODIC BREATHING] {neonate.first_name}: {alert_msg}")
+
+        alert_message = {
+            "event": "alert",
+            "neonate_id": neonate.id,
+            "device_id": device_id,
+            "alert": {
+                "id": db_alert.id,
+                "type": db_alert.type,
+                "message": db_alert.message,
+                "severity": db_alert.severity,
+                "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                "is_resolved": bool(db_alert.is_resolved)
+            }
+        }
+
+        await send_push_notification(db, neonate, alert_msg)
+        if manager:
+            await manager.broadcast(alert_message)
+        if sse_queue:
+            await sse_queue.put(alert_message)
+
+
+# ============================================================================
+#  BRADICARDIA "EXTREME EVENT" PCA-DIPENDENTE (ALTE Q8)
+#  HR sotto soglia PCA-dipendente, sostenuta per >=10s.
+# ============================================================================
+async def check_bradycardia_extreme(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, pca_weeks):
+    """Bradicardia sostenuta sotto soglia PCA-dipendente per >=10s."""
+    hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
+    if hr_val is None or hr_val <= 0:
+        state.brady_run_start = None
+        return
+
+    brady_bpm = derive_brady_threshold(pca_weeks)
+    now = time.time()
+
+    if hr_val < brady_bpm:
+        if state.brady_run_start is None:
+            state.brady_run_start = now
+            return
+        elapsed = now - state.brady_run_start
+        if elapsed >= 10:
+            alert_type = "BradycardiaExtreme"
+            alert_msg = f"🚨 BRADICARDIA SOSTENUTA ({int(elapsed)}s)\n\nFrequenza cardiaca sotto {brady_bpm} BPM (attuale: {hr_val:.1f} BPM) da oltre 10 secondi. Evento critico secondo le linee guida ALTE. Intervenire."
+            severity = "critical"
+
+            last_sent = getattr(state, "last_brady_alert_time", 0)
+            if now - last_sent > 30:
+                state.last_brady_alert_time = now
+                db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+                print(f"[ALERT BRADYCARDIA EXTREME] {neonate.first_name}: {alert_msg}")
+
+                alert_message = {
+                    "event": "alert",
+                    "neonate_id": neonate.id,
+                    "device_id": device_id,
+                    "alert": {
+                        "id": db_alert.id,
+                        "type": db_alert.type,
+                        "message": db_alert.message,
+                        "severity": db_alert.severity,
+                        "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                        "is_resolved": bool(db_alert.is_resolved)
+                    }
+                }
+
+                await send_push_notification(db, neonate, alert_msg)
+                if manager:
+                    await manager.broadcast(alert_message)
+                if sse_queue:
+                    await sse_queue.put(alert_message)
+    else:
+        state.brady_run_start = None
+
+
 async def mqtt_loop():
     while True:
         try:
@@ -349,10 +567,21 @@ async def mqtt_loop():
             print(f"MQTT Connection error: {e}. Retrying in 5 seconds...")
             await asyncio.sleep(5)
 
-async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel, alert_msg: str):
+async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel, alert_msg: str, severity: str = "critical"):
+    """
+    Gestisce l'invio delle notifiche di allarme.
+    Invia l'avviso via Telegram (metodo primario e attivo) e tenta l'invio push remoto
+    tramite Expo (canale legacy / non più utilizzato a seguito dell'uso dei WebSocket locali).
+    """
     import requests
     from sqlalchemy import select
     try:
+        # Invia la notifica via Telegram (Attiva)
+        try:
+            await telegram_bot.notify_users_via_telegram(db, neonate, alert_msg, severity)
+        except Exception as te:
+            print(f"[TELEGRAM ERROR] Errore invio notifica Telegram: {te}")
+
         # Fetch parent push tokens
         parent_query = select(models.UserModel.push_token).where(
             models.UserModel.id == neonate.parent_id,
@@ -412,24 +641,29 @@ async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel,
 async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str):
     now = time.time()
     dt = now - state.last_breath_time
-    
+
+    # Soglia grave ETA'-DIPENDENTE (McCoy): 20s pretermine (<40 sett PCA), 15s a termine
+    pca = get_neonate_pca(neonate)
+    grave_threshold = derive_apnea_threshold(pca)
+
     alert_type = None
     alert_msg = ""
     severity = "critical"
-    
-    if dt >= 20:
+
+    if dt >= grave_threshold:
         alert_type = "SIDS"
-        alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre 20 secondi ({int(dt)}s). Stimolare immediatamente il neonato!"
+        eta_txt = "pretermine" if grave_threshold == 20 else "a termine"
+        alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre {grave_threshold}s ({int(dt)}s) — soglia per neonato {eta_txt}. Stimolare immediatamente il neonato!"
         severity = "critical"
     elif dt >= 10:
         # Check for bradycardia (EMA of HR < 100) or hypotonia (variance < 8000)
         has_bradycardia = state.latest_hr_ema is not None and state.latest_hr_ema < 100
         has_hypotonia = state.latest_var_acc is not None and state.latest_var_acc < 8000
-        
+
         # Fallback to latest_hr if EMA not populated
         if state.latest_hr_ema is None and state.latest_hr is not None and state.latest_hr < 100:
             has_bradycardia = True
-            
+
         if has_bradycardia or has_hypotonia:
             alert_type = "Apnea"
             reasons = []
@@ -440,27 +674,27 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
                 reasons.append(f"ipotonia (tono muscolare ridotto)")
             alert_msg = f"⚠️ APNEA SINTOMATICA ({int(dt)}s)\n\nPausa respiratoria accompagnata da:\n" + "\n".join([f"• {r}" for r in reasons])
             severity = "critical"
-            
+
     if alert_type:
         # Rate limiting logic:
         # - Send if no alert sent in last 30s
         # - OR if upgrading from "Apnea" to "SIDS"
         last_apnea_type = getattr(state, "last_apnea_alert_type", None)
         last_apnea_time = getattr(state, "last_apnea_alert_time", 0)
-        
+
         should_send = False
         if now - last_apnea_time > 30:
             should_send = True
         elif alert_type == "SIDS" and last_apnea_type == "Apnea":
             should_send = True
-            
+
         if should_send:
             state.last_apnea_alert_type = alert_type
             state.last_apnea_alert_time = now
-            
+
             db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
             print(f"[ALERT APNEA/SIDS] {neonate.first_name}: {alert_msg}")
-            
+
             alert_message = {
                 "event": "alert",
                 "neonate_id": neonate.id,
@@ -474,14 +708,14 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
                     "is_resolved": bool(db_alert.is_resolved)
                 }
             }
-            
-            # Send remote push notifications!
+
             await send_push_notification(db, neonate, alert_msg)
-            
+
             if manager:
                 await manager.broadcast(alert_message)
             if sse_queue:
                 await sse_queue.put(alert_message)
+
 
 async def apnea_monitor_loop():
     while True:
@@ -505,6 +739,63 @@ async def apnea_monitor_loop():
                     if device_id not in device_states:
                         device_states[device_id] = DeviceState(device_id)
                     state = device_states[device_id]
+                    
+                    # Heartbeat / Offline detection logic
+                    if not hasattr(state, "is_online"):
+                        state.is_online = True
+                    if not hasattr(state, "last_offline_alert_time"):
+                        state.last_offline_alert_time = 0
+                        
+                    timestamps = [v[1] for v in latest_vitals.values() if isinstance(v, tuple) and len(v) > 1]
+                    latest_packet_ts = max(timestamps) if timestamps else None
+                    now = time.time()
+                    
+                    if latest_packet_ts and (now - latest_packet_ts > 10):
+                        # Il dispositivo è offline (nessun dato ricevuto da oltre 10 secondi)
+                        if state.is_online:
+                            state.is_online = False
+                            if now - state.last_offline_alert_time > 30:
+                                state.last_offline_alert_time = now
+                                alert_type = "Connection"
+                                alert_msg = f"🔌 DISPOSITIVO OFFLINE: La maglietta intelligente di {neonate.first_name} {neonate.last_name} si è disconnessa o spenta."
+                                severity = "medium"
+                                
+                                db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+                                print(f"[ALERT CONNECTION] {neonate.first_name} Offline: {alert_msg}")
+                                
+                                alert_message = {
+                                    "event": "alert",
+                                    "neonate_id": neonate.id,
+                                    "device_id": device_id,
+                                    "alert": {
+                                        "id": db_alert.id,
+                                        "type": db_alert.type,
+                                        "message": db_alert.message,
+                                        "severity": db_alert.severity,
+                                        "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                                        "is_resolved": bool(db_alert.is_resolved)
+                                    }
+                                }
+                                await send_push_notification(db, neonate, alert_msg, severity)
+                                if manager:
+                                    await manager.broadcast(alert_message)
+                                if sse_queue:
+                                    await sse_queue.put(alert_message)
+                        continue  # Salta il calcolo delle apnee e delle soglie per evitare falsi positivi
+                    else:
+                        # Il dispositivo è online
+                        if not state.is_online:
+                            state.is_online = True
+                            print(f"[CONNECTION] {neonate.first_name} tornato ONLINE.")
+                            # Risolve automaticamente l'allarme di disconnessione precedente se presente
+                            alert_message = {
+                                "event": "alert_resolved",
+                                "neonate_id": neonate.id,
+                                "device_id": device_id,
+                                "type": "Connection"
+                            }
+                            if manager:
+                                await manager.broadcast(alert_message)
                     
                     # 3. Update state from InfluxDB instead of MQTT!
                     # Get temperature
@@ -539,8 +830,12 @@ async def apnea_monitor_loop():
                             
                     # Accelerometer variance (hypotonia)
                     state.latest_var_acc = influx_manager.get_latest_acc_variance(device_id)
-                    
+
+                    # Calcolo PCA live (una volta per ciclo), usata da apnea e bradicardia
+                    pca_weeks = get_neonate_pca(neonate)
+
                     # 4. Check clinical apnea & ALTE conditions
+                    #    (apnea ora e' eta'-dipendente internamente via PCA)
                     now = time.time()
                     dt = now - state.last_breath_time
                     
@@ -550,6 +845,17 @@ async def apnea_monitor_loop():
                     
                     # 5. Check position with persistence filter (Tp = 10s)
                     await check_position_persistence(db, neonate, state, device_id, orientation)
+
+                    # 5b. Rilevamento caduta (impatto + immobilita')
+                    acc_window = influx_manager.get_acc_window(device_id)
+                    await check_fall_detection(db, neonate, state, device_id, acc_window)
+
+                    # 5c. Bradicardia extreme-event PCA-dipendente (ALTE Q8)
+                    await check_bradycardia_extreme(db, neonate, state, device_id, pca_weeks)
+
+                    # 5d. Respiro periodico
+                    breath_gaps = influx_manager.get_breath_gaps(device_id)
+                    await check_periodic_breathing(db, neonate, state, device_id, breath_gaps)
                     
                     # 6. Check temperature & other thresholds
                     thresholds = await crud.get_thresholds(db, neonate.id)

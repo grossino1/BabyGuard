@@ -293,6 +293,118 @@ class InfluxManager:
         finally:
             client.close()
 
+    def get_acc_window(self, device_id: str, range_start: str = "-3s") -> list:
+        """
+        Concatena i campioni {x, y, z} di tutti i pacchetti ACC_GYRO nell'ultima
+        finestra (~3s), in ordine cronologico, per il rilevamento caduta.
+        """
+        client = self._get_client()
+        query_api = client.query_api()
+
+        query = f'from(bucket: "{self.bucket}")\n'
+        query += f'  |> range(start: {range_start})\n'
+        query += f'  |> filter(fn: (r) => r["_measurement"] == "biometric_waves")\n'
+        query += f'  |> filter(fn: (r) => r["shirt_id"] == "{device_id}")\n'
+        query += f'  |> filter(fn: (r) => r["data_type"] == "ACC_GYRO")\n'
+        query += f'  |> filter(fn: (r) => r["_field"] == "samples")\n'
+        query += f'  |> sort(columns: ["_time"])\n'
+
+        try:
+            result = query_api.query(org=self.org, query=query)
+            window = []
+            for table in result:
+                for record in table.records:
+                    samples_str = record.get_value()
+                    import json
+                    samples = json.loads(samples_str) if isinstance(samples_str, str) else (samples_str or [])
+                    if samples:
+                        window.extend(samples)
+            return window
+        except Exception as e:
+            print(f"Error querying ACC window: {e}")
+            return []
+        finally:
+            client.close()
+
+    def get_breath_gaps(self, device_id: str, range_start: str = "-30s") -> list:
+        """
+        Analizza il segnale respiratorio grezzo degli ultimi 30 secondi da InfluxDB
+        e rileva le pause respiratorie (tratti in cui il segnale è piatto),
+        restituendo una lista con le durate in secondi di ciascuna pausa (es. [3.2, 4.1]).
+        """
+        client = self._get_client()
+        query_api = client.query_api()
+
+        query = f'from(bucket: "{self.bucket}")\n'
+        query += f'  |> range(start: {range_start})\n'
+        query += f'  |> filter(fn: (r) => r["_measurement"] == "biometric_waves")\n'
+        query += f'  |> filter(fn: (r) => r["shirt_id"] == "{device_id}")\n'
+        query += f'  |> filter(fn: (r) => r["data_type"] == "STRAINGAUGES_MIXED")\n'
+        query += f'  |> filter(fn: (r) => r["_field"] == "samples")\n'
+        query += f'  |> sort(columns: ["_time"])\n'
+
+        try:
+            result = query_api.query(org=self.org, query=query)
+            all_samples = []
+            freq = 13.3 # Frequenza di campionamento di default (1000/75 ms)
+            
+            for table in result:
+                for record in table.records:
+                    samples_str = record.get_value()
+                    import json
+                    samples = json.loads(samples_str) if isinstance(samples_str, str) else (samples_str or [])
+                    if samples:
+                        all_samples.extend(samples)
+                    record_fields = record.values
+                    if "frequency" in record_fields:
+                        freq = float(record_fields["frequency"])
+            
+            if not all_samples or freq <= 0:
+                return []
+                
+            window_size = int(1.5 * freq)
+            if window_size <= 0:
+                window_size = 15
+                
+            NOISE_THRESHOLD = 15.0
+            
+            is_flat = []
+            for i in range(len(all_samples)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(all_samples), i + window_size // 2 + 1)
+                sub_seg = all_samples[start_idx:end_idx]
+                if sub_seg:
+                    diff = max(sub_seg) - min(sub_seg)
+                    is_flat.append(diff < NOISE_THRESHOLD)
+                else:
+                    is_flat.append(False)
+            
+            gaps = []
+            in_gap = False
+            gap_start = 0
+            
+            for idx, flat in enumerate(is_flat):
+                if flat and not in_gap:
+                    in_gap = True
+                    gap_start = idx
+                elif not flat and in_gap:
+                    in_gap = False
+                    gap_duration = (idx - gap_start) / freq
+                    if 2.0 <= gap_duration <= 10.0:
+                        gaps.append(round(gap_duration, 1))
+            
+            if in_gap:
+                gap_duration = (len(is_flat) - gap_start) / freq
+                if 2.0 <= gap_duration <= 10.0:
+                    gaps.append(round(gap_duration, 1))
+                    
+            return gaps
+        except Exception as e:
+            print(f"Error computing breath gaps: {e}")
+            return []
+        finally:
+            client.close()
+
 # Singleton instance
 influx_manager = InfluxManager()
 

@@ -31,6 +31,7 @@ class NeonateBase(BaseModel):
     height: Optional[float] = None
     weight: Optional[float] = None
     age: Optional[int] = None
+    gestational_age_weeks: Optional[float] = None
 
 class NeonateCreate(NeonateBase):
     doctor_id: int
