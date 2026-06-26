@@ -84,6 +84,9 @@ interface Neonate {
   birth_date: string;
   gender: string;
   device_id: string;
+  age?: string | number;
+  height?: string | number;
+  weight?: string | number;
 }
 
 interface Thresholds {
@@ -156,8 +159,8 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
 
   // Form Validation State
-  const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
-  const [babyErrors, setBabyErrors] = useState<{[key: string]: string}>({});
+  const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({});
+  const [babyErrors, setBabyErrors] = useState<{ [key: string]: string }>({});
 
   // App Core State
   const [neonates, setNeonates] = useState<Neonate[]>([]);
@@ -240,7 +243,7 @@ export default function App() {
 
   // --- VALIDATION FUNCTIONS ---
   const validateRegistrationForm = () => {
-    const errs: {[key: string]: string} = {};
+    const errs: { [key: string]: string } = {};
 
     if (!username.trim()) {
       errs.username = 'Lo username è obbligatorio.';
@@ -305,7 +308,7 @@ export default function App() {
   };
 
   const validateLoginForm = () => {
-    const errs: {[key: string]: string} = {};
+    const errs: { [key: string]: string } = {};
     if (!username.trim()) {
       errs.username = 'Lo username è obbligatorio.';
     }
@@ -379,7 +382,7 @@ export default function App() {
         }
         setToken(data.access_token);
         setValidationErrors({});
-        
+
         // Decode Token for role
         try {
           const payloadBase64 = data.access_token.split('.')[1];
@@ -772,7 +775,7 @@ export default function App() {
               if (temp !== undefined && temp > 0 && temp <= 60) {
                 if (temp > 10000) temp = temp / 1000.0;
                 else if (temp > 1000) temp = temp / 100.0;
-                
+
                 setLiveData((prev) => {
                   const prevTemp = prev.temperature;
                   // EMA filter (alpha = 0.15) for smooth temperature changes
@@ -1025,7 +1028,7 @@ export default function App() {
   };
 
   const validateBabyForm = () => {
-    const errs: {[key: string]: string} = {};
+    const errs: { [key: string]: string } = {};
     if (!babyFirstName.trim()) {
       errs.firstName = 'Il nome è obbligatorio.';
     } else if (babyFirstName.trim().length < 2) {
@@ -1274,7 +1277,7 @@ export default function App() {
     const sortedDc = [...cleaned].sort((a, b) => a - b);
     const median = sortedDc[Math.floor(sortedDc.length / 2)];
     const zeroMeanSamples = cleaned.map(v => v - median);
-    
+
     // 1. Rimuove la componente continua (baseline wander) usando un filtro IIR passa-alto
     // y_hp[n] = x[n] - x[n-1] + 0.985 * y_hp[n-1]
     const highPassed: number[] = [];
@@ -1293,11 +1296,11 @@ export default function App() {
     const notched: number[] = [];
     for (let i = 0; i < highPassed.length; i++) {
       const x0 = highPassed[i];
-      const x1 = i > 0 ? highPassed[i-1] : 0;
-      const x2 = i > 1 ? highPassed[i-2] : 0;
-      const y1 = i > 0 ? notched[i-1] : 0;
-      const y2 = i > 1 ? notched[i-2] : 0;
-      
+      const x1 = i > 0 ? highPassed[i - 1] : 0;
+      const x2 = i > 1 ? highPassed[i - 2] : 0;
+      const y1 = i > 0 ? notched[i - 1] : 0;
+      const y2 = i > 1 ? notched[i - 2] : 0;
+
       const y0 = x0 + 1.54602 * x1 + x2 - 1.46872 * y1 - 0.9025 * y2;
       notched.push(y0);
     }
@@ -1317,16 +1320,16 @@ export default function App() {
   const findRPeakIndices = (samples: number[]) => {
     const indices: number[] = [];
     if (samples.length < 5) return indices;
-    
+
     const threshold = 0.58; // I picchi R superano sempre il 58% del valore massimo normalizzato
     const minDistance = 20;  // Distanza minima tra due picchi R successivi (128Hz sampling)
-    
+
     let lastPeakIdx = -minDistance;
-    
+
     for (let i = 2; i < samples.length - 2; i++) {
       const val = samples[i];
       // Controlla se è un massimo locale ed è superiore alla soglia
-      if (val > threshold && val > samples[i-1] && val > samples[i-2] && val > samples[i+1] && val > samples[i+2]) {
+      if (val > threshold && val > samples[i - 1] && val > samples[i - 2] && val > samples[i + 1] && val > samples[i + 2]) {
         if (i - lastPeakIdx >= minDistance) {
           indices.push(i);
           lastPeakIdx = i;
@@ -1386,13 +1389,13 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A1926" />
-      
+
       {/* HEADER SECTION */}
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Image 
-            source={require('./assets/LogoBabyGuard.jpeg')} 
-            style={{ width: 40, height: 40, borderRadius: 20, marginRight: 10 }} 
+          <Image
+            source={require('./assets/LogoBabyGuard.jpeg')}
+            style={{ width: 40, height: 40, borderRadius: 20, marginRight: 10 }}
           />
           <View>
             <Text style={styles.headerTitle}>BabyGuard IoMT</Text>
@@ -1439,7 +1442,7 @@ export default function App() {
           {token && (
             <View style={[styles.configSection, { marginTop: 15, borderTopWidth: 1, borderTopColor: '#1F3A52', paddingTop: 15 }]}>
               <Text style={styles.configSubLabel}>🤖 Notifiche Bot Telegram:</Text>
-              
+
               {telegramLoading ? (
                 <ActivityIndicator size="small" color="#00D2C4" style={{ marginVertical: 10 }} />
               ) : telegramAssociated ? (
@@ -1462,13 +1465,13 @@ export default function App() {
                   <Text style={styles.telegramInfoText}>
                     Collega il tuo account per ricevere alert critici direttamente su Telegram.
                   </Text>
-                  
+
                   {telegramCode ? (
                     <View style={styles.telegramCodeContainer}>
                       <Text style={styles.telegramCodeLabel}>Codice di associazione:</Text>
                       <Text style={styles.telegramCode}>{telegramCode}</Text>
-                      
-                      <TouchableOpacity 
+
+                      <TouchableOpacity
                         onPress={() => Linking.openURL(`https://t.me/${telegramBotUsername}?start=${telegramCode}`)}
                         style={[styles.telegramLinkBtn, { backgroundColor: '#0088CC', width: '100%', marginBottom: 12, paddingVertical: 10 }]}
                       >
@@ -1476,12 +1479,12 @@ export default function App() {
                       </TouchableOpacity>
 
                       <Text style={styles.telegramInstructions}>
-                        Premi il pulsante azzurro sopra per aprire Telegram. Si aprirà la chat del Bot <Text style={{fontWeight: 'bold', color: '#00D2C4'}}>@{telegramBotUsername}</Text> con il codice già inserito.{"\n"}
-                        Ti basterà premere su <Text style={{fontWeight: 'bold', color: '#FFF'}}>"AVVIA" / "START"</Text> per completare l'associazione!{"\n\n"}
+                        Premi il pulsante azzurro sopra per aprire Telegram. Si aprirà la chat del Bot <Text style={{ fontWeight: 'bold', color: '#00D2C4' }}>@{telegramBotUsername}</Text> con il codice già inserito.{"\n"}
+                        Ti basterà premere su <Text style={{ fontWeight: 'bold', color: '#FFF' }}>"AVVIA" / "START"</Text> per completare l'associazione!{"\n\n"}
                         Al termine, premi il tasto sotto per aggiornare lo stato.
                       </Text>
-                      <TouchableOpacity 
-                        onPress={() => fetchTelegramStatus(token)} 
+                      <TouchableOpacity
+                        onPress={() => fetchTelegramStatus(token)}
                         style={styles.telegramVerifyBtn}
                       >
                         <Text style={styles.telegramVerifyBtnText}>🔄 Verifica Associazione</Text>
@@ -1505,170 +1508,170 @@ export default function App() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
-          <ScrollView 
+          <ScrollView
             contentContainerStyle={styles.authContainer}
             keyboardShouldPersistTaps="handled"
           >
-            <Image 
-              source={require('./assets/LogoBabyGuard.jpeg')} 
-              style={{ width: 120, height: 120, borderRadius: 60, alignSelf: 'center', marginBottom: 20 }} 
+            <Image
+              source={require('./assets/LogoBabyGuard.jpeg')}
+              style={{ width: 120, height: 120, borderRadius: 60, alignSelf: 'center', marginBottom: 20 }}
             />
             <View style={styles.authCard}>
-            <Text style={styles.authTitle}>{isRegistering ? 'Crea Account' : 'Accedi'}</Text>
-            
-            {isRegistering && (
-              <View style={styles.roleTabRow}>
-                <TouchableOpacity
-                  style={[styles.roleTab, selectedRole === 'parent' && styles.roleTabActive]}
-                  onPress={() => setSelectedRole('parent')}
-                >
-                  <Text style={[styles.roleTabText, selectedRole === 'parent' && styles.roleTabTextActive]}>Genitore</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.roleTab, selectedRole === 'doctor' && styles.roleTabActive]}
-                  onPress={() => setSelectedRole('doctor')}
-                >
-                  <Text style={[styles.roleTabText, selectedRole === 'doctor' && styles.roleTabTextActive]}>Pediatra</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+              <Text style={styles.authTitle}>{isRegistering ? 'Crea Account' : 'Accedi'}</Text>
 
-            <TextInput
-              style={[styles.authInput, validationErrors.username && styles.inputError]}
-              placeholder="Username"
-              placeholderTextColor="#888"
-              value={username}
-              onChangeText={(text) => {
-                setUsername(text);
-                if (validationErrors.username) setValidationErrors(prev => ({ ...prev, username: '' }));
-              }}
-              autoCapitalize="none"
-            />
-            {validationErrors.username ? (
-              <Text style={styles.errorText}>{validationErrors.username}</Text>
-            ) : null}
-
-            {isRegistering && (
-              <>
-                <TextInput
-                  style={[styles.authInput, validationErrors.firstName && styles.inputError]}
-                  placeholder="Nome"
-                  placeholderTextColor="#888"
-                  value={firstName}
-                  onChangeText={(text) => {
-                    setFirstName(text);
-                    if (validationErrors.firstName) setValidationErrors(prev => ({ ...prev, firstName: '' }));
-                  }}
-                />
-                {validationErrors.firstName ? (
-                  <Text style={styles.errorText}>{validationErrors.firstName}</Text>
-                ) : null}
-
-                <TextInput
-                  style={[styles.authInput, validationErrors.lastName && styles.inputError]}
-                  placeholder="Cognome"
-                  placeholderTextColor="#888"
-                  value={lastName}
-                  onChangeText={(text) => {
-                    setLastName(text);
-                    if (validationErrors.lastName) setValidationErrors(prev => ({ ...prev, lastName: '' }));
-                  }}
-                />
-                {validationErrors.lastName ? (
-                  <Text style={styles.errorText}>{validationErrors.lastName}</Text>
-                ) : null}
-
-                <TextInput
-                  style={[styles.authInput, validationErrors.email && styles.inputError]}
-                  placeholder="Email"
-                  placeholderTextColor="#888"
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    if (validationErrors.email) setValidationErrors(prev => ({ ...prev, email: '' }));
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-                {validationErrors.email ? (
-                  <Text style={styles.errorText}>{validationErrors.email}</Text>
-                ) : null}
-
-                {selectedRole === 'doctor' && (
-                  <>
-                    <TextInput
-                      style={[styles.authInput, validationErrors.medicalId && styles.inputError]}
-                      placeholder="Codice Identificativo Medico (es. RM-45928)"
-                      placeholderTextColor="#888"
-                      value={medicalId}
-                      onChangeText={(text) => {
-                        setMedicalId(text);
-                        if (validationErrors.medicalId) setValidationErrors(prev => ({ ...prev, medicalId: '' }));
-                      }}
-                      autoCapitalize="characters"
-                    />
-                    {validationErrors.medicalId ? (
-                      <Text style={styles.errorText}>{validationErrors.medicalId}</Text>
-                    ) : null}
-                  </>
-                )}
-              </>
-            )}
-
-            <TextInput
-              style={[styles.authInput, validationErrors.password && styles.inputError]}
-              placeholder="Password"
-              placeholderTextColor="#888"
-              value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                if (validationErrors.password) setValidationErrors(prev => ({ ...prev, password: '' }));
-              }}
-              secureTextEntry
-              autoCapitalize="none"
-            />
-            {validationErrors.password ? (
-              <Text style={styles.errorText}>{validationErrors.password}</Text>
-            ) : null}
-
-            {isRegistering && (
-              <>
-                <TextInput
-                  style={[styles.authInput, validationErrors.confirmPassword && styles.inputError]}
-                  placeholder="Conferma Password"
-                  placeholderTextColor="#888"
-                  value={confirmPassword}
-                  onChangeText={(text) => {
-                    setConfirmPassword(text);
-                    if (validationErrors.confirmPassword) setValidationErrors(prev => ({ ...prev, confirmPassword: '' }));
-                  }}
-                  secureTextEntry
-                  autoCapitalize="none"
-                />
-                {validationErrors.confirmPassword ? (
-                  <Text style={styles.errorText}>{validationErrors.confirmPassword}</Text>
-                ) : null}
-              </>
-            )}
-
-            <TouchableOpacity onPress={handleAuth} style={styles.authBtn} disabled={authLoading}>
-              {authLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.authBtnText}>{isRegistering ? 'REGISTRATI' : 'ACCEDI'}</Text>
+              {isRegistering && (
+                <View style={styles.roleTabRow}>
+                  <TouchableOpacity
+                    style={[styles.roleTab, selectedRole === 'parent' && styles.roleTabActive]}
+                    onPress={() => setSelectedRole('parent')}
+                  >
+                    <Text style={[styles.roleTabText, selectedRole === 'parent' && styles.roleTabTextActive]}>Genitore</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.roleTab, selectedRole === 'doctor' && styles.roleTabActive]}
+                    onPress={() => setSelectedRole('doctor')}
+                  >
+                    <Text style={[styles.roleTabText, selectedRole === 'doctor' && styles.roleTabTextActive]}>Pediatra</Text>
+                  </TouchableOpacity>
+                </View>
               )}
-            </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => {
-              setIsRegistering(!isRegistering);
-              setPassword('');
-              setConfirmPassword('');
-              setValidationErrors({});
-            }} style={styles.authToggle}>
-              <Text style={styles.authToggleText}>
-                {isRegistering ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati'}
-              </Text>
-            </TouchableOpacity>
+              <TextInput
+                style={[styles.authInput, validationErrors.username && styles.inputError]}
+                placeholder="Username"
+                placeholderTextColor="#888"
+                value={username}
+                onChangeText={(text) => {
+                  setUsername(text);
+                  if (validationErrors.username) setValidationErrors(prev => ({ ...prev, username: '' }));
+                }}
+                autoCapitalize="none"
+              />
+              {validationErrors.username ? (
+                <Text style={styles.errorText}>{validationErrors.username}</Text>
+              ) : null}
+
+              {isRegistering && (
+                <>
+                  <TextInput
+                    style={[styles.authInput, validationErrors.firstName && styles.inputError]}
+                    placeholder="Nome"
+                    placeholderTextColor="#888"
+                    value={firstName}
+                    onChangeText={(text) => {
+                      setFirstName(text);
+                      if (validationErrors.firstName) setValidationErrors(prev => ({ ...prev, firstName: '' }));
+                    }}
+                  />
+                  {validationErrors.firstName ? (
+                    <Text style={styles.errorText}>{validationErrors.firstName}</Text>
+                  ) : null}
+
+                  <TextInput
+                    style={[styles.authInput, validationErrors.lastName && styles.inputError]}
+                    placeholder="Cognome"
+                    placeholderTextColor="#888"
+                    value={lastName}
+                    onChangeText={(text) => {
+                      setLastName(text);
+                      if (validationErrors.lastName) setValidationErrors(prev => ({ ...prev, lastName: '' }));
+                    }}
+                  />
+                  {validationErrors.lastName ? (
+                    <Text style={styles.errorText}>{validationErrors.lastName}</Text>
+                  ) : null}
+
+                  <TextInput
+                    style={[styles.authInput, validationErrors.email && styles.inputError]}
+                    placeholder="Email"
+                    placeholderTextColor="#888"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      if (validationErrors.email) setValidationErrors(prev => ({ ...prev, email: '' }));
+                    }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  {validationErrors.email ? (
+                    <Text style={styles.errorText}>{validationErrors.email}</Text>
+                  ) : null}
+
+                  {selectedRole === 'doctor' && (
+                    <>
+                      <TextInput
+                        style={[styles.authInput, validationErrors.medicalId && styles.inputError]}
+                        placeholder="Codice Identificativo Medico (es. RM-45928)"
+                        placeholderTextColor="#888"
+                        value={medicalId}
+                        onChangeText={(text) => {
+                          setMedicalId(text);
+                          if (validationErrors.medicalId) setValidationErrors(prev => ({ ...prev, medicalId: '' }));
+                        }}
+                        autoCapitalize="characters"
+                      />
+                      {validationErrors.medicalId ? (
+                        <Text style={styles.errorText}>{validationErrors.medicalId}</Text>
+                      ) : null}
+                    </>
+                  )}
+                </>
+              )}
+
+              <TextInput
+                style={[styles.authInput, validationErrors.password && styles.inputError]}
+                placeholder="Password"
+                placeholderTextColor="#888"
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  if (validationErrors.password) setValidationErrors(prev => ({ ...prev, password: '' }));
+                }}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              {validationErrors.password ? (
+                <Text style={styles.errorText}>{validationErrors.password}</Text>
+              ) : null}
+
+              {isRegistering && (
+                <>
+                  <TextInput
+                    style={[styles.authInput, validationErrors.confirmPassword && styles.inputError]}
+                    placeholder="Conferma Password"
+                    placeholderTextColor="#888"
+                    value={confirmPassword}
+                    onChangeText={(text) => {
+                      setConfirmPassword(text);
+                      if (validationErrors.confirmPassword) setValidationErrors(prev => ({ ...prev, confirmPassword: '' }));
+                    }}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                  {validationErrors.confirmPassword ? (
+                    <Text style={styles.errorText}>{validationErrors.confirmPassword}</Text>
+                  ) : null}
+                </>
+              )}
+
+              <TouchableOpacity onPress={handleAuth} style={styles.authBtn} disabled={authLoading}>
+                {authLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.authBtnText}>{isRegistering ? 'REGISTRATI' : 'ACCEDI'}</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => {
+                setIsRegistering(!isRegistering);
+                setPassword('');
+                setConfirmPassword('');
+                setValidationErrors({});
+              }} style={styles.authToggle}>
+                <Text style={styles.authToggleText}>
+                  {isRegistering ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -1729,7 +1732,7 @@ export default function App() {
                 </Text>
               )}
             </ScrollView>
-            
+
             {/* WS Status & Info */}
             {selectedNeonate && (
               <View style={styles.statusRow}>
@@ -1771,24 +1774,24 @@ export default function App() {
                 <View style={styles.bioChip}>
                   <Text style={styles.bioChipLabel}>Età</Text>
                   <Text style={styles.bioChipValue}>
-                    {selectedNeonate.age !== null && selectedNeonate.age !== undefined 
-                      ? `${selectedNeonate.age} m` 
+                    {selectedNeonate.age !== null && selectedNeonate.age !== undefined
+                      ? `${selectedNeonate.age} m`
                       : '--'}
                   </Text>
                 </View>
                 <View style={styles.bioChip}>
                   <Text style={styles.bioChipLabel}>Altezza</Text>
                   <Text style={styles.bioChipValue}>
-                    {selectedNeonate.height !== null && selectedNeonate.height !== undefined 
-                      ? `${selectedNeonate.height} cm` 
+                    {selectedNeonate.height !== null && selectedNeonate.height !== undefined
+                      ? `${selectedNeonate.height} cm`
                       : '--'}
                   </Text>
                 </View>
                 <View style={styles.bioChip}>
                   <Text style={styles.bioChipLabel}>Peso</Text>
                   <Text style={styles.bioChipValue}>
-                    {selectedNeonate.weight !== null && selectedNeonate.weight !== undefined 
-                      ? `${selectedNeonate.weight} kg` 
+                    {selectedNeonate.weight !== null && selectedNeonate.weight !== undefined
+                      ? `${selectedNeonate.weight} kg`
                       : '--'}
                   </Text>
                 </View>
@@ -1903,7 +1906,7 @@ export default function App() {
                   }}
                   style={styles.chart}
                 />
-                
+
                 {/* LEGENDA UMANA PER I GENITORI */}
                 <View style={styles.ecgLegendContainer}>
                   <View style={styles.ecgLegendItem}>
@@ -1951,10 +1954,10 @@ export default function App() {
                   <View style={styles.thresholdsHeader}>
                     <Text style={styles.cardSectionTitle}>Diagnostica Indice AHI (Sonno)</Text>
                     <View style={[
-                      styles.statusBadge, 
-                      ahiData.status === 'Normal' ? styles.statusLive : 
-                      ahiData.status === 'Mild' ? styles.alertNormal : 
-                      ahiData.status === 'Moderate' ? styles.alertHigh : styles.alertCritical
+                      styles.statusBadge,
+                      ahiData.status === 'Normal' ? styles.statusLive :
+                        ahiData.status === 'Mild' ? styles.alertNormal :
+                          ahiData.status === 'Moderate' ? styles.alertHigh : styles.alertCritical
                     ]}>
                       <Text style={{ fontWeight: 'bold', fontSize: 10, color: '#FFF' }}>
                         {ahiData.status.toUpperCase()}
@@ -2038,7 +2041,7 @@ export default function App() {
                       <Text style={styles.legendSubtitle}>
                         Questa guida ti aiuta a comprendere il significato dei parametri clinici e degli allarmi rilevati dal sistema.
                       </Text>
-                      
+
                       <View style={styles.legendItem}>
                         <Text style={styles.legendTerm}>SIDS (Sudden Infant Death Syndrome)</Text>
                         <Text style={styles.legendDesc}>
@@ -2115,7 +2118,7 @@ export default function App() {
           >
             <View style={[styles.modalCard, { maxHeight: undefined }]}>
               <Text style={styles.modalTitle}>🩺 Modifica Soglie Mediche</Text>
-              
+
               {/* HR MIN SLIDER */}
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
@@ -2138,7 +2141,7 @@ export default function App() {
                   <Text style={styles.sliderLimitText}>120 BPM</Text>
                 </View>
               </View>
-              
+
               {/* HR MAX SLIDER */}
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
@@ -2280,7 +2283,7 @@ export default function App() {
           >
             <View style={[styles.modalCard, { maxHeight: undefined }]}>
               <Text style={styles.modalTitle}>👶 Associa Nuova Maglietta</Text>
-              
+
               <Text style={styles.modalLabel}>Nome del Bambino:</Text>
               <TextInput
                 style={[styles.modalInput, babyErrors.firstName && styles.inputError]}
