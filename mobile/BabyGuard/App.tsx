@@ -1158,10 +1158,10 @@ export default function App() {
     setBabyFirstName(selectedNeonate.first_name);
     setBabyLastName(selectedNeonate.last_name);
     setBabyGender(selectedNeonate.gender || 'M');
-    setBabyAge(selectedNeonate.age !== null ? selectedNeonate.age.toString() : '');
-    setBabyGestationalAge(selectedNeonate.gestational_age_weeks !== null ? selectedNeonate.gestational_age_weeks.toString() : '40.0');
-    setBabyHeight(selectedNeonate.height !== null ? selectedNeonate.height.toString() : '');
-    setBabyWeight(selectedNeonate.weight !== null ? selectedNeonate.weight.toString() : '');
+    setBabyAge(selectedNeonate.age !== undefined && selectedNeonate.age !== null ? selectedNeonate.age.toString() : '');
+    setBabyGestationalAge(selectedNeonate.gestational_age_weeks !== undefined && selectedNeonate.gestational_age_weeks !== null ? selectedNeonate.gestational_age_weeks.toString() : '40.0');
+    setBabyHeight(selectedNeonate.height !== undefined && selectedNeonate.height !== null ? selectedNeonate.height.toString() : '');
+    setBabyWeight(selectedNeonate.weight !== undefined && selectedNeonate.weight !== null ? selectedNeonate.weight.toString() : '');
     setSelectedDoctorId(selectedNeonate.doctor_id || null);
     setBabyErrors({});
     setShowEditBabyModal(true);
