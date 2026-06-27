@@ -430,6 +430,30 @@ async def delete_neonate(
         
     return {"message": "Neonate deleted successfully", "id": neonate_id}
 
+@app.put("/neonates/{neonate_id}", response_model=schemas.NeonateResponse)
+async def update_neonate(
+    neonate_id: int,
+    neonate_update: schemas.NeonateUpdate,
+    current_user: models.UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(database.get_db)
+):
+    if current_user.role != "parent" and current_user.role != models.UserRole.PARENT and current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only parents or admins can modify neonate profiles")
+        
+    result = await db.execute(select(models.NeonateModel).where(models.NeonateModel.id == neonate_id))
+    neonate = result.scalars().first()
+    if not neonate:
+        raise HTTPException(status_code=404, detail="Neonate not found")
+        
+    if neonate.parent_id != current_user.id and current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this neonate")
+        
+    updated = await crud.update_neonate(db, neonate_id=neonate_id, neonate_update=neonate_update)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update neonate")
+        
+    return updated
+
 @app.post("/neonates", response_model=schemas.NeonateResponse)
 async def create_neonate(neonate: schemas.NeonateCreate, current_user: models.UserModel = Depends(get_current_user), db: AsyncSession = Depends(database.get_db)):
     if current_user.role != models.UserRole.PARENT and current_user.role != "parent" and current_user.role != models.UserRole.ADMIN:

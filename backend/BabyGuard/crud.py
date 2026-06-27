@@ -56,6 +56,21 @@ async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, paren
     db_neonate.age = calculate_age_months(db_neonate.birth_date)
     return db_neonate
 
+async def update_neonate(db: AsyncSession, neonate_id: int, neonate_update: schemas.NeonateUpdate):
+    result = await db.execute(select(models.NeonateModel).where(models.NeonateModel.id == neonate_id))
+    db_neonate = result.scalars().first()
+    if not db_neonate:
+        return None
+    
+    update_data = neonate_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_neonate, key, value)
+        
+    await db.commit()
+    await db.refresh(db_neonate)
+    db_neonate.age = calculate_age_months(db_neonate.birth_date)
+    return db_neonate
+
 async def get_neonates_by_parent(db: AsyncSession, parent_id: int):
     result = await db.execute(
         select(models.NeonateModel)

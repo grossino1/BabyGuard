@@ -87,6 +87,8 @@ interface Neonate {
   age?: string | number;
   height?: string | number;
   weight?: string | number;
+  gestational_age_weeks?: number;
+  doctor_id?: number;
 }
 
 interface Thresholds {
@@ -197,6 +199,7 @@ export default function App() {
 
   // Parent Create Baby Form
   const [showAddBabyModal, setShowAddBabyModal] = useState(false);
+  const [showEditBabyModal, setShowEditBabyModal] = useState(false);
   const [babyFirstName, setBabyFirstName] = useState('');
   const [babyLastName, setBabyLastName] = useState('');
   const [babyBirthDate, setBabyBirthDate] = useState('2026-06-19T00:00:00Z');
@@ -1097,6 +1100,11 @@ export default function App() {
     const cleanLastName = babyLastName.trim();
     const cleanDeviceId = babyDeviceId.trim().toLowerCase();
 
+    // Calcola a ritroso la data di nascita a partire dall'età in mesi inserita dall'utente
+    const ageMonths = babyAge.trim() ? parseInt(babyAge.trim()) : 0;
+    const computedBirthDate = new Date();
+    computedBirthDate.setMonth(computedBirthDate.getMonth() - ageMonths);
+
     setBabyLoading(true);
     try {
       const response = await fetch(`${API_URL}/neonates`, {
@@ -1108,7 +1116,7 @@ export default function App() {
         body: JSON.stringify({
           first_name: cleanFirstName,
           last_name: cleanLastName,
-          birth_date: babyBirthDate,
+          birth_date: computedBirthDate.toISOString(),
           gender: babyGender,
           device_id: cleanDeviceId,
           doctor_id: selectedDoctorId,
@@ -1136,6 +1144,92 @@ export default function App() {
         setBabyErrors({});
       } else {
         const errMsg = await getErrorMessage(response, 'Impossibile registrare il bambino.');
+        throw new Error(errMsg);
+      }
+    } catch (e: any) {
+      Alert.alert('Errore', e.message);
+    } finally {
+      setBabyLoading(false);
+    }
+  };
+
+  const openEditBabyModal = () => {
+    if (!selectedNeonate) return;
+    setBabyFirstName(selectedNeonate.first_name);
+    setBabyLastName(selectedNeonate.last_name);
+    setBabyGender(selectedNeonate.gender || 'M');
+    setBabyAge(selectedNeonate.age !== null ? selectedNeonate.age.toString() : '');
+    setBabyGestationalAge(selectedNeonate.gestational_age_weeks !== null ? selectedNeonate.gestational_age_weeks.toString() : '40.0');
+    setBabyHeight(selectedNeonate.height !== null ? selectedNeonate.height.toString() : '');
+    setBabyWeight(selectedNeonate.weight !== null ? selectedNeonate.weight.toString() : '');
+    setSelectedDoctorId(selectedNeonate.doctor_id || null);
+    setBabyErrors({});
+    setShowEditBabyModal(true);
+  };
+
+  const handleUpdateBaby = async () => {
+    if (!selectedNeonate || !token) return;
+
+    const errs: any = {};
+    if (!babyFirstName.trim()) errs.firstName = "Il nome è obbligatorio.";
+    if (!babyLastName.trim()) errs.lastName = "Il cognome è obbligatorio.";
+    if (babyAge.trim()) {
+      const ageVal = parseInt(babyAge.trim());
+      if (isNaN(ageVal) || ageVal < 0 || ageVal > 120) {
+        errs.age = "L'età deve essere un numero valido tra 0 e 120 mesi.";
+      }
+    }
+    if (babyGestationalAge.trim()) {
+      const gAge = parseFloat(babyGestationalAge.trim());
+      if (isNaN(gAge) || gAge < 20 || gAge > 46) {
+        errs.gestationalAge = "L'età gestazionale deve essere tra 20 e 46 settimane.";
+      }
+    }
+    if (babyHeight.trim() && isNaN(parseFloat(babyHeight.trim()))) errs.height = "Altezza non valida.";
+    if (babyWeight.trim() && isNaN(parseFloat(babyWeight.trim()))) errs.weight = "Peso non valido.";
+    if (!selectedDoctorId) errs.doctorId = "Seleziona un pediatra.";
+
+    if (Object.keys(errs).length > 0) {
+      setBabyErrors(errs);
+      Alert.alert('Errore di Validazione', 'Per favore, compila correttamente tutti i campi.');
+      return;
+    }
+
+    const cleanFirstName = babyFirstName.trim();
+    const cleanLastName = babyLastName.trim();
+    const ageMonths = babyAge.trim() ? parseInt(babyAge.trim()) : 0;
+    const computedBirthDate = new Date();
+    computedBirthDate.setMonth(computedBirthDate.getMonth() - ageMonths);
+
+    setBabyLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/neonates/${selectedNeonate.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          first_name: cleanFirstName,
+          last_name: cleanLastName,
+          birth_date: computedBirthDate.toISOString(),
+          gender: babyGender,
+          height: babyHeight.trim() ? parseFloat(babyHeight.trim()) : null,
+          weight: babyWeight.trim() ? parseFloat(babyWeight.trim()) : null,
+          age: ageMonths,
+          gestational_age_weeks: babyGestationalAge.trim() ? parseFloat(babyGestationalAge.trim()) : null,
+          doctor_id: selectedDoctorId
+        })
+      });
+
+      if (response.ok) {
+        const updatedNeonate = await response.json();
+        setNeonates((prev) => prev.map((n) => n.id === updatedNeonate.id ? updatedNeonate : n));
+        setSelectedNeonate(updatedNeonate);
+        Alert.alert('Successo', 'Profilo neonato aggiornato correttamente!');
+        setShowEditBabyModal(false);
+      } else {
+        const errMsg = await getErrorMessage(response, 'Impossibile aggiornare il profilo.');
         throw new Error(errMsg);
       }
     } catch (e: any) {
@@ -1765,8 +1859,14 @@ export default function App() {
 
           {selectedNeonate ? (
             <ScrollView style={styles.scrollContent}>
-              {/* BABY DETAILS CHIPS (Sesso, Età, Altezza, Peso) */}
-              <View style={styles.babyBioContainer}>
+              {role === 'parent' && (
+                <TouchableOpacity onPress={openEditBabyModal} style={styles.editNeonateBtn}>
+                  <Text style={styles.editNeonateBtnText}>✏️ Modifica Dati Neonato</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* BABY DETAILS CHIPS (Sesso, Età, Altezza, Peso, Gest.) */}
+              <View style={[styles.babyBioContainer, { flexWrap: 'wrap' }]}>
                 <View style={styles.bioChip}>
                   <Text style={styles.bioChipLabel}>Sesso</Text>
                   <Text style={styles.bioChipValue}>{selectedNeonate.gender === 'F' ? '🌸 F' : '💎 M'}</Text>
@@ -1792,6 +1892,14 @@ export default function App() {
                   <Text style={styles.bioChipValue}>
                     {selectedNeonate.weight !== null && selectedNeonate.weight !== undefined
                       ? `${selectedNeonate.weight} kg`
+                      : '--'}
+                  </Text>
+                </View>
+                <View style={styles.bioChip}>
+                  <Text style={styles.bioChipLabel}>Gest.</Text>
+                  <Text style={styles.bioChipValue}>
+                    {selectedNeonate.gestational_age_weeks !== null && selectedNeonate.gestational_age_weeks !== undefined
+                      ? `${selectedNeonate.gestational_age_weeks} sett`
                       : '--'}
                   </Text>
                 </View>
@@ -2017,7 +2125,7 @@ export default function App() {
                       </View>
                       <Text style={styles.alertMsg}>{alert.message}</Text>
                       <Text style={styles.alertTime}>
-                        {new Date(alert.timestamp).toLocaleTimeString()} - {new Date(alert.timestamp).toLocaleDateString()}
+                        {new Date(alert.timestamp.endsWith('Z') ? alert.timestamp : alert.timestamp + 'Z').toLocaleTimeString()} - {new Date(alert.timestamp.endsWith('Z') ? alert.timestamp : alert.timestamp + 'Z').toLocaleDateString()}
                       </Text>
                     </View>
                   ))
@@ -2449,6 +2557,178 @@ export default function App() {
                     <ActivityIndicator color="#000" size="small" />
                   ) : (
                     <Text style={styles.modalSaveBtnText}>Registra</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* MODAL: MODIFICA PROFILO BAMBINO */}
+      <Modal visible={showEditBabyModal} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}
+            keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+          >
+            <View style={[styles.modalCard, { maxHeight: undefined }]}>
+              <Text style={styles.modalTitle}>✏️ Modifica Profilo Neonato</Text>
+              
+              <Text style={styles.modalLabel}>Nome del Bambino:</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.firstName && styles.inputError]}
+                value={babyFirstName}
+                onChangeText={(text) => {
+                  setBabyFirstName(text);
+                  if (babyErrors.firstName) setBabyErrors(prev => ({ ...prev, firstName: '' }));
+                }}
+                placeholder="es. Luca"
+                placeholderTextColor="#888"
+              />
+              {babyErrors.firstName ? (
+                <Text style={styles.errorText}>{babyErrors.firstName}</Text>
+              ) : null}
+
+              <Text style={styles.modalLabel}>Cognome del Bambino:</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.lastName && styles.inputError]}
+                value={babyLastName}
+                onChangeText={(text) => {
+                  setBabyLastName(text);
+                  if (babyErrors.lastName) setBabyErrors(prev => ({ ...prev, lastName: '' }));
+                }}
+                placeholder="es. Rossi"
+                placeholderTextColor="#888"
+              />
+              {babyErrors.lastName ? (
+                <Text style={styles.errorText}>{babyErrors.lastName}</Text>
+              ) : null}
+
+              <Text style={styles.modalLabel}>Sesso del Bambino:</Text>
+              <View style={styles.roleTabRow}>
+                <TouchableOpacity
+                  style={[styles.roleTab, babyGender === 'M' && styles.roleTabActive]}
+                  onPress={() => setBabyGender('M')}
+                >
+                  <Text style={[styles.roleTabText, babyGender === 'M' && styles.roleTabTextActive]}>💎 Maschio</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.roleTab, babyGender === 'F' && styles.roleTabActive]}
+                  onPress={() => setBabyGender('F')}
+                >
+                  <Text style={[styles.roleTabText, babyGender === 'F' && styles.roleTabTextActive]}>🌸 Femmina</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.modalLabel}>Età del Bambino (mesi):</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.age && styles.inputError]}
+                value={babyAge}
+                onChangeText={(text) => {
+                  setBabyAge(text);
+                  if (babyErrors.age) setBabyErrors(prev => ({ ...prev, age: '' }));
+                }}
+                placeholder="es. 6"
+                placeholderTextColor="#888"
+                keyboardType="numeric"
+              />
+              {babyErrors.age ? (
+                <Text style={styles.errorText}>{babyErrors.age}</Text>
+              ) : null}
+
+              <Text style={styles.modalLabel}>Età Gestazionale alla Nascita (settimane):</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.gestationalAge && styles.inputError]}
+                value={babyGestationalAge}
+                onChangeText={(text) => {
+                  setBabyGestationalAge(text);
+                  if (babyErrors.gestationalAge) setBabyErrors(prev => ({ ...prev, gestationalAge: '' }));
+                }}
+                placeholder="es. 38.5 (default 40.0)"
+                placeholderTextColor="#888"
+                keyboardType="numeric"
+              />
+              {babyErrors.gestationalAge ? (
+                <Text style={styles.errorText}>{babyErrors.gestationalAge}</Text>
+              ) : null}
+
+              <Text style={styles.modalLabel}>Altezza del Bambino (cm):</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.height && styles.inputError]}
+                value={babyHeight}
+                onChangeText={(text) => {
+                  setBabyHeight(text);
+                  if (babyErrors.height) setBabyErrors(prev => ({ ...prev, height: '' }));
+                }}
+                placeholder="es. 65"
+                placeholderTextColor="#888"
+                keyboardType="numeric"
+              />
+              {babyErrors.height ? (
+                <Text style={styles.errorText}>{babyErrors.height}</Text>
+              ) : null}
+
+              <Text style={styles.modalLabel}>Peso del Bambino (kg):</Text>
+              <TextInput
+                style={[styles.modalInput, babyErrors.weight && styles.inputError]}
+                value={babyWeight}
+                onChangeText={(text) => {
+                  setBabyWeight(text);
+                  if (babyErrors.weight) setBabyErrors(prev => ({ ...prev, weight: '' }));
+                }}
+                placeholder="es. 7.5"
+                placeholderTextColor="#888"
+                keyboardType="numeric"
+              />
+              {babyErrors.weight ? (
+                <Text style={styles.errorText}>{babyErrors.weight}</Text>
+              ) : null}
+
+              <Text style={styles.modalLabel}>Pediatra di Riferimento:</Text>
+              <ScrollView style={styles.doctorSelectorList} nestedScrollEnabled={true}>
+                {doctorsList.map((doc) => (
+                  <TouchableOpacity
+                    key={doc.id}
+                    style={[
+                      styles.doctorSelectBadge,
+                      selectedDoctorId === doc.id && styles.doctorSelectBadgeActive,
+                      babyErrors.doctorId && styles.inputError
+                    ]}
+                    onPress={() => {
+                      setSelectedDoctorId(doc.id);
+                      if (babyErrors.doctorId) setBabyErrors(prev => ({ ...prev, doctorId: '' }));
+                    }}
+                  >
+                    <Text style={[
+                      styles.doctorSelectText,
+                      selectedDoctorId === doc.id && styles.doctorSelectTextActive
+                    ]}>
+                      🩺 Dott. {doc.first_name || doc.username} {doc.last_name || ''}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {doctorsList.length === 0 && (
+                  <Text style={styles.noDoctorsText}>Nessun pediatra registrato nel sistema.</Text>
+                )}
+              </ScrollView>
+              {babyErrors.doctorId ? (
+                <Text style={styles.errorText}>{babyErrors.doctorId}</Text>
+              ) : null}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity onPress={() => { setShowEditBabyModal(false); setBabyErrors({}); }} style={styles.modalCancelBtn} disabled={babyLoading}>
+                  <Text style={styles.modalCancelBtnText}>Annulla</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleUpdateBaby} style={styles.modalSaveBtn} disabled={babyLoading}>
+                  {babyLoading ? (
+                    <ActivityIndicator color="#000" size="small" />
+                  ) : (
+                    <Text style={styles.modalSaveBtnText}>Salva</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -3268,6 +3548,20 @@ const styles = StyleSheet.create({
     color: '#F26C6C',
     fontSize: 10,
     fontWeight: 'bold',
+  },
+  editNeonateBtn: {
+    backgroundColor: '#3498db22',
+    borderWidth: 1,
+    borderColor: '#3498db',
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  editNeonateBtnText: {
+    color: '#3498db',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
   associateCard: {
     backgroundColor: '#12293C',
