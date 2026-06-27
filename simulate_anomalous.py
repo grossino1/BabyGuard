@@ -162,11 +162,19 @@ def generate_dynamic_payload(topic, payload, device_index, device_id):
         s = []
         # Caso A: Siamo nella fase di caduta e nei secondi dell'impatto (secondo 63 o 64 del ciclo)
         if t_cycle in (63, 64) and sim_status == "Caduta & Immobilità":
-            # Primo campione ha un picco violento (>3.0g, 1g ~ 16800 LSB, es. 60000 LSB)
-            s.append({"x": 60000, "y": 0, "z": 0})
-            # I restanti 15 campioni sono immobili (circa 1g verticale, z ~ 16800)
-            for _ in range(15):
-                s.append({"x": random.randint(-200, 200), "y": random.randint(-200, 200), "z": 16800 + random.randint(-300, 300)})
+            if t_cycle == 63:
+                # 2 campioni di free-fall (assenza di gravità, SVM ~ 0) per soddisfare il controllo < 0.4g
+                s.append({"x": 0, "y": 0, "z": 0})
+                s.append({"x": 0, "y": 0, "z": 0})
+                # 1 campione di impatto violento (>1.8g, es. 3.6g -> 60000 LSB)
+                s.append({"x": 60000, "y": 0, "z": 0})
+                # 13 campioni immobili post-impatto (circa 1g verticale, z ~ 16800)
+                for _ in range(13):
+                    s.append({"x": random.randint(-200, 200), "y": random.randint(-200, 200), "z": 16800 + random.randint(-300, 300)})
+            else:
+                # Al secondo 64 il neonato è ormai fermo a terra
+                for _ in range(16):
+                    s.append({"x": random.randint(-200, 200), "y": random.randint(-200, 200), "z": 16800 + random.randint(-300, 300)})
         # Caso B: Altri secondi della fase di caduta -> Immobilità post-impatto
         elif 60 <= t_cycle < 80 and sim_status == "Caduta & Immobilità":
             for _ in range(16):
