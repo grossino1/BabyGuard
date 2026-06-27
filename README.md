@@ -24,8 +24,8 @@ Per implementare la rilevazione della temperatura cutanea del neonato, viene uti
 
 ### Componenti Necessari
 * 1x Scheda ESP32 (es. NodeMCU o ESP32-WROOM-32)
-* 2x Termistori NTC da $10\text{ k}\Omega$ (Beta valore tipico $3950$)
-* 2x Resistenze fisse da $10\text{ k}\Omega$ (per il partitore di tensione)
+* 2x Termistori NTC da 10k (Beta valore tipico 3950)
+* 2x Resistenze fisse da 10k (per il partitore di tensione)
 * 1x Breadboard e cavetti di collegamento (Jumper)
 
 ### Schema sulla Breadboard (Partitore di Tensione)
@@ -44,7 +44,7 @@ Per ciascun sensore NTC, è necessario configurare un partitore di tensione per 
 * **Sensore NTC 1 (tshirt001)**:
   * Collegare un capo del termistore NTC a **3.3V**.
   * Collegare l'altro capo all'ingresso analogico **GPIO 32** dell'ESP32.
-  * Collegare lo stesso punto (GPIO 32) a una resistenza da $10\text{ k}\Omega$ collegata a **GND**.
+  * Collegare lo stesso punto (GPIO 32) a una resistenza da 10k collegata a **GND**.
 * **Sensore NTC 2 (tshirt002)**:
   * Stesso collegamento del Sensore 1, ma collegando il nodo centrale all'ingresso analogico **GPIO 33**.
 
