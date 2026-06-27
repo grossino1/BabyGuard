@@ -282,63 +282,6 @@ async def check_temperature_trend(db: AsyncSession, neonate: models.NeonateModel
             if sse_queue:
                 await sse_queue.put(alert_message)
 
-async def check_alte_conditions(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, dt: float) -> bool:
-    """
-    Rilevamento ALTE (Apparent Life Threatening Event):
-    Pausa respiratoria (10s-20s) associata a bradicardia (HR EMA < 100) E ipotonia (varianza IMU < 8000).
-    """
-    if dt >= 10:
-        has_bradycardia = state.latest_hr_ema is not None and state.latest_hr_ema < 100
-        has_hypotonia = state.latest_var_acc is not None and state.latest_var_acc < 8000
-        
-        # Fallback se l'EMA non è ancora calcolata
-        if state.latest_hr_ema is None and state.latest_hr is not None and state.latest_hr < 100:
-            has_bradycardia = True
-
-        if has_bradycardia and has_hypotonia:
-            alert_type = "ALTE"
-            hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
-            alert_msg = f"🚨 EMERGENZA CLINICA ALTE\n\nApnea rilevata da {int(dt)}s associata a:\n• Bradicardia (Battito: {hr_val:.1f} BPM)\n• Ipotonia (Movimento assente)\n\nIntervenire immediatamente!"
-            severity = "critical"
-            
-            now = time.time()
-            last_sent = getattr(state, "last_alte_alert_time", 0)
-            if now - last_sent > 30:
-                state.last_alte_alert_time = now
-                db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
-                print(f"[ALERT ALTE] {neonate.first_name}: {alert_msg}")
-                
-                alert_message = {
-                    "event": "alert",
-                    "neonate_id": neonate.id,
-                    "device_id": device_id,
-                    "alert": {
-                        "id": db_alert.id,
-                        "type": db_alert.type,
-                        "message": db_alert.message,
-                        "severity": db_alert.severity,
-                        "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
-                        "is_resolved": bool(db_alert.is_resolved)
-                    }
-                }
-                
-                await send_push_notification(db, neonate, alert_msg)
-                if manager:
-                    await manager.broadcast(alert_message)
-                if sse_queue:
-                    await sse_queue.put(alert_message)
-                return True
-    return False
-
-# ============================================================================
-#  HELPER SOGLIE PCA-DIPENDENTI
-# ============================================================================
-def derive_apnea_threshold(pca_weeks) -> int:
-    """Durata (s) oltre cui l'apnea e' grave (McCoy): 20s pretermine (<40 sett), 15s a termine."""
-    if pca_weeks is None:
-        return 15
-    return 20 if pca_weeks < 40 else 15
-
 
 def derive_brady_threshold(pca_weeks) -> int:
     """Soglia bpm bradicardia extreme-event (ALTE Q8): <60 se PCA<44 sett, <50 se PCA>=44."""
@@ -366,75 +309,83 @@ FALL_STILL_VAR_MAX = 4.0e6
 FALL_STILL_RATIO = 0.6
 
 async def check_fall_detection(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, acc_samples: list):
-    """Caduta: picco d'impatto seguito da immobilita'. acc_samples = finestra grezza {x,y,z}."""
-    if not acc_samples or len(acc_samples) < 4:
+    """
+    Rilevamento Caduta tramite SVM normalizzato a 16384 LSB/g.
+    Sequenza: Caduta Libera (SVM < 0.4g per < 500ms) seguita da Impatto (SVM > 1.8g entro 1s).
+    """
+    if not acc_samples or len(acc_samples) < 5:
         return
 
-    def magnitude(s):
-        x = s.get("x", 0.0); y = s.get("y", 0.0); z = s.get("z", 0.0)
-        return math.sqrt(x * x + y * y + z * z)
+    # 1. Normalizzazione e calcolo SVM
+    svms = []
+    for s in acc_samples:
+        ax = s.get("x", 0.0) / 16384.0
+        ay = s.get("y", 0.0) / 16384.0
+        az = s.get("z", 0.0) / 16384.0
+        svm = math.sqrt(ax*ax + ay*ay + az*az)
+        svms.append(svm)
 
-    impact_lsb = FALL_IMPACT_G * ACC_LSB_PER_G
-    one_g = ACC_LSB_PER_G
-    magnitudes = [magnitude(s) for s in acc_samples]
+    # Stima del tempo di campionamento (finestra di ~3s)
+    dt = 3.0 / len(svms)
+    max_ff_samples = max(1, int(0.5 / dt))  # 500ms
+    max_impact_samples = max(1, int(1.0 / dt)) # 1s
 
-    peak_idx = None
-    peak_val = 0.0
-    for i, mag in enumerate(magnitudes):
-        if mag > impact_lsb and mag > peak_val:
-            peak_val = mag
-            peak_idx = i
-
-    if peak_idx is None:
-        return
-
-    post = magnitudes[peak_idx + 1:]
+    free_fall_start = -1
+    free_fall_end = -1
+    
     alert_type = None
     alert_msg = ""
     severity = "critical"
+    peak_val = 0.0
 
-    if len(post) < 3:
-        alert_type = "Fall"
-        alert_msg = f"⚠️ POSSIBILE CADUTA\n\nRilevato impatto accelerometrico ({peak_val / one_g:.1f} g). Verificare immediatamente il neonato."
-        severity = "high"
-    else:
-        mean_post = sum(post) / len(post)
-        var_post = sum((m - mean_post) ** 2 for m in post) / len(post)
-        still_count = sum(1 for m in post if abs(m - one_g) < one_g * 0.4)
-        still_ratio = still_count / len(post)
-        is_still = (var_post < FALL_STILL_VAR_MAX) and (still_ratio >= FALL_STILL_RATIO)
-
-        if is_still:
-            alert_type = "Fall"
-            alert_msg = f"🚨 CADUTA RILEVATA\n\nImpatto di {peak_val / one_g:.1f} g seguito da immobilita'. Possibile caduta dalla culla, dal letto o dalle braccia. Verificare immediatamente il neonato!"
-            severity = "critical"
+    # Ricerca sequenza: Caduta Libera -> Impatto
+    for i, svm in enumerate(svms):
+        if svm < 0.4: # Avvio fase di free-fall
+            if free_fall_start == -1:
+                free_fall_start = i
         else:
-            return
+            if free_fall_start != -1:
+                ff_duration = i - free_fall_start
+                if ff_duration <= max_ff_samples: # Controlla durata massima di free-fall (500ms)
+                    free_fall_end = i
+                free_fall_start = -1
 
-    now = time.time()
-    last_sent = getattr(state, "last_fall_alert_time", 0)
-    if now - last_sent > 30:
-        state.last_fall_alert_time = now
-        db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
-        print(f"[ALERT FALL] {neonate.first_name}: {alert_msg}")
+        if free_fall_end != -1:
+            if i - free_fall_end <= max_impact_samples: # Controllo impatto entro 1s dalla fine della free-fall
+                if svm > 1.8:
+                    alert_type = "Fall"
+                    peak_val = max(peak_val, svm)
+            else:
+                free_fall_end = -1
 
-        alert_message = {
-            "event": "alert",
-            "neonate_id": neonate.id,
-            "device_id": device_id,
-            "alert": {
-                "id": db_alert.id,
-                "type": db_alert.type,
-                "message": db_alert.message,
-                "severity": db_alert.severity,
-                "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
-                "is_resolved": bool(db_alert.is_resolved)
+    if alert_type:
+        alert_msg = f"🚨 ALLARME CADUTA\n\nRilevata fase di caduta libera seguita da impatto ({peak_val:.1f}g). Verificare immediatamente il neonato!"
+        now = time.time()
+        last_sent = getattr(state, "last_fall_alert_time", 0)
+        
+        if now - last_sent > 30:
+            state.last_fall_alert_time = now
+            
+            db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
+            print(f"[ALERT FALL] {neonate.first_name}: {alert_msg}")
+
+            alert_message = {
+                "event": "alert",
+                "neonate_id": neonate.id,
+                "device_id": device_id,
+                "alert": {
+                    "id": db_alert.id,
+                    "type": db_alert.type,
+                    "message": db_alert.message,
+                    "severity": db_alert.severity,
+                    "timestamp": db_alert.timestamp.isoformat() if db_alert.timestamp else None,
+                    "is_resolved": bool(db_alert.is_resolved)
+                }
             }
-        }
-
-        await send_push_notification(db, neonate, alert_msg)
-        if manager:
-            await manager.broadcast(alert_message)
+            
+            await send_push_notification(db, neonate, alert_msg)
+            if manager:
+                await manager.broadcast(alert_message)
         if sse_queue:
             await sse_queue.put(alert_message)
 
@@ -642,9 +593,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
     now = time.time()
     dt = now - state.last_breath_time
 
-    # Soglia grave ETA'-DIPENDENTE (McCoy): 20s pretermine (<40 sett PCA), 15s a termine
-    pca = get_neonate_pca(neonate)
-    grave_threshold = derive_apnea_threshold(pca)
+    grave_threshold = 20
 
     alert_type = None
     alert_msg = ""
@@ -652,8 +601,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
 
     if dt >= grave_threshold:
         alert_type = "SIDS"
-        eta_txt = "pretermine" if grave_threshold == 20 else "a termine"
-        alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre {grave_threshold}s ({int(dt)}s) — soglia per neonato {eta_txt}. Stimolare immediatamente il neonato!"
+        alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre {grave_threshold}s ({int(dt)}s). Stimolare immediatamente il neonato!"
         severity = "critical"
     elif dt >= 10:
         # Check for bradycardia (EMA of HR < 100) or hypotonia (variance < 8000)
@@ -665,20 +613,20 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
             has_bradycardia = True
 
         if has_bradycardia or has_hypotonia:
-            alert_type = "Apnea"
+            alert_type = "ALTE"
             reasons = []
             if has_bradycardia:
                 hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
                 reasons.append(f"bradicardia (Battito: {hr_val:.1f} BPM)")
             if has_hypotonia:
                 reasons.append(f"ipotonia (tono muscolare ridotto)")
-            alert_msg = f"⚠️ APNEA SINTOMATICA ({int(dt)}s)\n\nPausa respiratoria accompagnata da:\n" + "\n".join([f"• {r}" for r in reasons])
+            alert_msg = f"🚨 EMERGENZA CLINICA ALTE\n\nApnea sintomatica ({int(dt)}s) accompagnata da:\n" + "\n".join([f"• {r}" for r in reasons]) + "\n\nIntervenire immediatamente!"
             severity = "critical"
 
     if alert_type:
         # Rate limiting logic:
         # - Send if no alert sent in last 30s
-        # - OR if upgrading from "Apnea" to "SIDS"
+        # - OR if upgrading from "ALTE" to "SIDS"
         last_apnea_type = getattr(state, "last_apnea_alert_type", None)
         last_apnea_time = getattr(state, "last_apnea_alert_time", 0)
 
@@ -839,9 +787,7 @@ async def apnea_monitor_loop():
                     now = time.time()
                     dt = now - state.last_breath_time
                     
-                    alte_triggered = await check_alte_conditions(db, neonate, state, device_id, dt)
-                    if not alte_triggered:
-                        await check_apnea_conditions(db, neonate, state, device_id)
+                    await check_apnea_conditions(db, neonate, state, device_id)
                     
                     # 5. Check position with persistence filter (Tp = 10s)
                     await check_position_persistence(db, neonate, state, device_id, orientation)

@@ -3,8 +3,8 @@ from influxdb_client import InfluxDBClient
 from datetime import datetime
 
 INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb:8086")
-INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN", "VHKmLZuJVqWxdmEc0djF3mA1UTrYvNSYrHrJAz58cXn9g5DLUmvXMOMOqISFy0CsU4-QepolBSEra6aMSZ748g==")
-INFLUXDB_ORG = os.getenv("INFLUXDB_ORG", "iomt-lab")
+INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN", "r0LEEIw1jw71txRTUPLKkwf0Ye1ohBE_cvUN26LptwKHEYuNaABxxIXeSY7SlreKdPWLzhiTGRrV3Xi7HLYwmg==")
+INFLUXDB_ORG = os.getenv("INFLUXDB_ORG", "lab_org")
 INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "babyguard_bucket")
 
 class InfluxManager:
@@ -168,7 +168,7 @@ class InfluxManager:
 
     def get_latest_heartrates(self, device_id: str, limit: int = 5) -> list:
         """
-        Queries the last 'limit' heartrate values from InfluxDB.
+        Queries the last 'limit' heartrate values from InfluxDB (only if status == 1).
         """
         client = self._get_client()
         query_api = client.query_api()
@@ -177,7 +177,9 @@ class InfluxManager:
         query += f'  |> range(start: -5m)\n'
         query += f'  |> filter(fn: (r) => r["_measurement"] == "vitals_summary")\n'
         query += f'  |> filter(fn: (r) => r["shirt_id"] == "{device_id}")\n'
-        query += f'  |> filter(fn: (r) => r["_field"] == "heartrate")\n'
+        query += f'  |> filter(fn: (r) => r["_field"] == "heartrate" or r["_field"] == "status")\n'
+        query += f'  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
+        query += f'  |> filter(fn: (r) => r["status"] == 1 or r["status"] == 1.0)\n'
         query += f'  |> tail(n: {limit})\n'
 
         try:
@@ -185,9 +187,9 @@ class InfluxManager:
             hrs = []
             for table in result:
                 for record in table.records:
-                    val = record.get_value()
-                    if val:
-                        hrs.append(val)
+                    val = record.values.get("heartrate")
+                    if val is not None:
+                        hrs.append(float(val))
             return hrs
         except Exception as e:
             print(f"Error querying latest heartrates: {e}")
