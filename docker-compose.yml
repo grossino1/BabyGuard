@@ -73,6 +73,9 @@ services:
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      INFLUXDB_TOKEN: VHKmLZuJVqWxdmEc0djF3mA1UTrYvNSYrHrJAz58cXn9g5DLUmvXMOMOqISFy0CsU4-QepolBSEra6aMSZ748g==
+      INFLUXDB_ORG: iomt-lab
+      INFLUXDB_URL: http://influxdb:8086
     depends_on:
       - mosquitto
 
@@ -104,7 +107,7 @@ services:
       - 1.1.1.1
     stdin_open: true
     tty: true
-    command: npx expo start --lan
+    command: npx expo start --lan --go
 
 volumes:
   expo-node-modules_app_websocket:
