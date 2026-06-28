@@ -138,20 +138,20 @@ async def perform_threshold_checks(db: AsyncSession, neonate: models.NeonateMode
     hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
     if hr_val is not None and hr_val > 0:
         if hr_val < thresholds.hr_min:
-            await trigger_threshold_alert("HR", f"⚠️ ALLARME BRADICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sotto la soglia minima di {thresholds.hr_min} BPM).", "critical")
+            await trigger_threshold_alert("ALLARME BRADICARDIA", f"⚠️ ALLARME BRADICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sotto la soglia minima di {thresholds.hr_min} BPM).", "critical")
         elif hr_val > thresholds.hr_max:
-            await trigger_threshold_alert("HR", f"⚠️ ALLARME TACHICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sopra la soglia massima di {thresholds.hr_max} BPM).", "high")
+            await trigger_threshold_alert("ALLARME TACHICARDIA", f"⚠️ ALLARME TACHICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sopra la soglia massima di {thresholds.hr_max} BPM).", "high")
 
     # 2. Breath Rate Check
     if br_val is not None and br_val > 0:
         if br_val < thresholds.br_min:
-            await trigger_threshold_alert("BR", f"⚠️ RESPIRAZIONE DEBOLE\n\nFrequenza respiratoria: {br_val} atti/min (Sotto la soglia minima di {thresholds.br_min} atti/min).", "critical")
+            await trigger_threshold_alert("ALLARME RESPIRAZIONE DEBOLE", f"⚠️ RESPIRAZIONE DEBOLE\n\nFrequenza respiratoria: {br_val} atti/min (Sotto la soglia minima di {thresholds.br_min} atti/min).", "critical")
         elif br_val > thresholds.br_max:
-            await trigger_threshold_alert("BR", f"⚠️ IPERVENTILAZIONE\n\nFrequenza respiratoria: {br_val} atti/min (Sopra la soglia massima di {thresholds.br_max} atti/min).", "high")
+            await trigger_threshold_alert("ALLARME IPERVENTILAZIONE", f"⚠️ IPERVENTILAZIONE\n\nFrequenza respiratoria: {br_val} atti/min (Sopra la soglia massima di {thresholds.br_max} atti/min).", "high")
 
     # 3. Battery Check
     if soc is not None and soc <= 15:
-        await trigger_threshold_alert("Battery", f"🪫 BATTERIA SCARICA\n\nLa batteria del dispositivo è al {soc}%. Collegare la maglietta alla carica.", "high")
+        await trigger_threshold_alert("ALLARME BATTERIA SCARICA", f"🪫 BATTERIA SCARICA\n\nLa batteria del dispositivo è al {soc}%. Collegare la maglietta alla carica.", "high")
 
 async def check_position_persistence(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, orientation: int):
     """
@@ -176,7 +176,7 @@ async def check_position_persistence(db: AsyncSession, neonate: models.NeonateMo
         else:
             elapsed = now - state.prone_start_time
             if elapsed >= 10:  # Finestra temporale di persistenza di 10 secondi
-                alert_type = "Position"
+                alert_type = "ALLARME POSIZIONE PRONA"
                 alert_msg = f"⚠️ POSIZIONE PRONA RILEVATA ({int(elapsed)}s)\n\nIl neonato è a pancia in giù da oltre 10 secondi. Si consiglia di rimetterlo in posizione supina (a pancia in su) per prevenire il rischio SIDS."
                 severity = "critical"
                 
@@ -600,7 +600,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
     severity = "critical"
 
     if dt >= grave_threshold:
-        alert_type = "SIDS"
+        alert_type = "ALLARME APNEA GRAVE (SIDS)"
         alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre {grave_threshold}s ({int(dt)}s). Stimolare immediatamente il neonato!"
         severity = "critical"
     elif dt >= 10:
@@ -613,7 +613,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
             has_bradycardia = True
 
         if has_bradycardia or has_hypotonia:
-            alert_type = "ALTE"
+            alert_type = "EMERGENZA CLINICA ALTE"
             reasons = []
             if has_bradycardia:
                 hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
@@ -633,7 +633,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
         should_send = False
         if now - last_apnea_time > 30:
             should_send = True
-        elif alert_type == "SIDS" and last_apnea_type == "Apnea":
+        elif alert_type == "ALLARME APNEA GRAVE (SIDS)" and last_apnea_type == "EMERGENZA CLINICA ALTE":
             should_send = True
 
         if should_send:

@@ -131,8 +131,23 @@ async def start_telegram_polling():
         return
         
     print("[TELEGRAM] Avvio del bot in modalità polling...")
+    
+    # Consuma tutti gli aggiornamenti pregressi all'avvio per evitare di processare vecchi messaggi
     offset = 0
     async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+            # getUpdates con offset=-1 consuma tutti gli update precedenti fino all'ultimo
+            response = await client.get(url, params={"offset": -1, "timeout": 1})
+            if response.status_code == 200:
+                data = response.json()
+                updates = data.get("result", [])
+                if updates:
+                    offset = updates[-1]["update_id"] + 1
+                    print(f"[TELEGRAM] Consumati {len(updates)} aggiornamenti pregressi all'avvio. Offset impostato a {offset}.")
+        except Exception as e:
+            print(f"[TELEGRAM] Errore nel consumo degli aggiornamenti pregressi all'avvio: {e}")
+
         while True:
             try:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"

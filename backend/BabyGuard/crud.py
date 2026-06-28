@@ -54,6 +54,25 @@ async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, paren
     
     await db.commit()
     db_neonate.age = calculate_age_months(db_neonate.birth_date)
+    
+    # Sincronizza i metadati su InfluxDB
+    if db_neonate.device_id:
+        try:
+            from .influx_manager import influx_manager
+            influx_manager.write_neonate_metadata(
+                device_id=db_neonate.device_id,
+                first_name=db_neonate.first_name,
+                last_name=db_neonate.last_name,
+                gender=db_neonate.gender,
+                birth_date=db_neonate.birth_date.isoformat() if db_neonate.birth_date else "",
+                height=db_neonate.height,
+                weight=db_neonate.weight,
+                age=db_neonate.age,
+                gestational_age_weeks=db_neonate.gestational_age_weeks
+            )
+        except Exception as ex:
+            print(f"Error syncing neonate metadata to InfluxDB: {ex}")
+            
     return db_neonate
 
 async def update_neonate(db: AsyncSession, neonate_id: int, neonate_update: schemas.NeonateUpdate):
@@ -69,6 +88,25 @@ async def update_neonate(db: AsyncSession, neonate_id: int, neonate_update: sche
     await db.commit()
     await db.refresh(db_neonate)
     db_neonate.age = calculate_age_months(db_neonate.birth_date)
+    
+    # Sincronizza i metadati su InfluxDB
+    if db_neonate.device_id:
+        try:
+            from .influx_manager import influx_manager
+            influx_manager.write_neonate_metadata(
+                device_id=db_neonate.device_id,
+                first_name=db_neonate.first_name,
+                last_name=db_neonate.last_name,
+                gender=db_neonate.gender,
+                birth_date=db_neonate.birth_date.isoformat() if db_neonate.birth_date else "",
+                height=db_neonate.height,
+                weight=db_neonate.weight,
+                age=db_neonate.age,
+                gestational_age_weeks=db_neonate.gestational_age_weeks
+            )
+        except Exception as ex:
+            print(f"Error syncing neonate metadata to InfluxDB: {ex}")
+            
     return db_neonate
 
 async def get_neonates_by_parent(db: AsyncSession, parent_id: int):
@@ -145,18 +183,29 @@ async def create_alert(db: AsyncSession, neonate_id: int, type: str, message: st
     result = await db.execute(stmt)
     existing_alert = result.scalars().first()
     
+    # Recupera neonato per il device_id (usato come shirt_id in InfluxDB)
+    neo_res = await db.execute(select(models.NeonateModel).where(models.NeonateModel.id == neonate_id))
+    neonate = neo_res.scalars().first()
+    device_id = neonate.device_id if neonate else None
+    
+    from .influx_manager import influx_manager
+    
     if existing_alert:
         existing_alert.message = message
         existing_alert.severity = severity
         existing_alert.timestamp = datetime.datetime.utcnow()
         await db.commit()
         await db.refresh(existing_alert)
+        if device_id:
+            influx_manager.write_alert(device_id, type, message, severity, 0)
         return existing_alert
     else:
         db_alert = models.AlertModel(neonate_id=neonate_id, type=type, message=message, severity=severity)
         db.add(db_alert)
         await db.commit()
         await db.refresh(db_alert)
+        if device_id:
+            influx_manager.write_alert(device_id, type, message, severity, 0)
         return db_alert
 
 async def get_alerts_by_neonate(db: AsyncSession, neonate_id: int):

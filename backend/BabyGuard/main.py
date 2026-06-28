@@ -89,6 +89,40 @@ async def startup():
     asyncio.create_task(mqtt_handler.apnea_monitor_loop())
     # Avvia il loop di polling per Telegram
     asyncio.create_task(telegram_bot.start_telegram_polling())
+    
+    # Sincronizza i metadati dei neonati esistenti in SQLite su InfluxDB all'avvio per Grafana
+    asyncio.create_task(sync_neonates_to_influx())
+
+async def sync_neonates_to_influx():
+    """
+    Recupera tutti i neonati da SQLite e sincronizza i loro metadati su InfluxDB.
+    """
+    await asyncio.sleep(5)
+    try:
+        async with database.AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(models.NeonateModel)
+                .where(models.NeonateModel.device_id.isnot(None))
+                .where(models.NeonateModel.device_id != "")
+            )
+            neonates = result.scalars().all()
+            from .crud import calculate_age_months
+            for n in neonates:
+                n.age = calculate_age_months(n.birth_date)
+                influx_manager.write_neonate_metadata(
+                    device_id=n.device_id,
+                    first_name=n.first_name,
+                    last_name=n.last_name,
+                    gender=n.gender,
+                    birth_date=n.birth_date.isoformat() if n.birth_date else "",
+                    height=n.height,
+                    weight=n.weight,
+                    age=n.age,
+                    gestational_age_weeks=n.gestational_age_weeks
+                )
+            print(f"Synced {len(neonates)} neonate(s) metadata to InfluxDB on startup.")
+    except Exception as ex:
+        print(f"Error syncing neonates metadata to InfluxDB on startup: {ex}")
 
 # --- WEBSOCKET ENDPOINT ---
 @app.websocket("/ws/{neonate_id}")
@@ -372,6 +406,25 @@ async def associate_device(
     neonate.device_id = normalized_device_id
     await db.commit()
     await db.refresh(neonate)
+    
+    # Sincronizza i metadati del neonato su InfluxDB per Grafana
+    try:
+        from .crud import calculate_age_months
+        neonate.age = calculate_age_months(neonate.birth_date)
+        influx_manager.write_neonate_metadata(
+            device_id=neonate.device_id,
+            first_name=neonate.first_name,
+            last_name=neonate.last_name,
+            gender=neonate.gender,
+            birth_date=neonate.birth_date.isoformat() if neonate.birth_date else "",
+            height=neonate.height,
+            weight=neonate.weight,
+            age=neonate.age,
+            gestational_age_weeks=neonate.gestational_age_weeks
+        )
+    except Exception as ex:
+        print(f"Error syncing neonate metadata to InfluxDB: {ex}")
+        
     return neonate
 
 @app.delete("/neonates/{neonate_id}/device", response_model=schemas.NeonateResponse)
@@ -579,6 +632,12 @@ async def resolve_alert(alert_id: int, db: AsyncSession = Depends(database.get_d
     alert.is_resolved = 1
     await db.commit()
     await db.refresh(alert)
+    
+    # Sincronizza la risoluzione dell'allarme su InfluxDB
+    neo_res = await db.execute(select(models.NeonateModel).where(models.NeonateModel.id == alert.neonate_id))
+    neonate = neo_res.scalars().first()
+    if neonate and neonate.device_id:
+        influx_manager.write_alert(neonate.device_id, alert.type, alert.message, alert.severity, 1)
     
     resolve_event = {
         "event": "alert_resolved",

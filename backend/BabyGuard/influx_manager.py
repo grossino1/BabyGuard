@@ -407,6 +407,67 @@ class InfluxManager:
         finally:
             client.close()
 
+    def write_neonate_metadata(self, device_id: str, first_name: str, last_name: str, gender: str, birth_date: str, height: float, weight: float, age: int, gestational_age_weeks: float):
+        """
+        Scrive o aggiorna i metadati del neonato su InfluxDB per renderli disponibili a Grafana.
+        """
+        if not device_id:
+            return
+        from influxdb_client import Point
+        from influxdb_client.client.write_api import SYNCHRONOUS
+        
+        client = self._get_client()
+        write_api = client.write_api(write_options=SYNCHRONOUS)
+        
+        h_val = float(height) if height is not None else 0.0
+        w_val = float(weight) if weight is not None else 0.0
+        a_val = int(age) if age is not None else 0
+        g_val = float(gestational_age_weeks) if gestational_age_weeks is not None else 40.0
+        
+        point = Point("neonate_metadata") \
+            .tag("shirt_id", device_id) \
+            .field("first_name", first_name) \
+            .field("last_name", last_name) \
+            .field("gender", gender) \
+            .field("birth_date", birth_date) \
+            .field("height", h_val) \
+            .field("weight", w_val) \
+            .field("age", a_val) \
+            .field("gestational_age_weeks", g_val)
+            
+        try:
+            write_api.write(bucket=self.bucket, org=self.org, record=point)
+        except Exception as e:
+            print(f"Error writing neonate metadata to InfluxDB: {e}")
+        finally:
+            client.close()
+
+    def write_alert(self, device_id: str, alert_type: str, message: str, severity: str, is_resolved: int):
+        """
+        Scrive un evento di allarme su InfluxDB per tracciare lo storico e lo stato complessivo del paziente.
+        """
+        if not device_id:
+            return
+        from influxdb_client import Point
+        from influxdb_client.client.write_api import SYNCHRONOUS
+        
+        client = self._get_client()
+        write_api = client.write_api(write_options=SYNCHRONOUS)
+        
+        point = Point("alerts") \
+            .tag("shirt_id", device_id) \
+            .tag("alert_type", alert_type) \
+            .field("message", message) \
+            .field("severity", severity) \
+            .field("is_resolved", int(is_resolved))
+            
+        try:
+            write_api.write(bucket=self.bucket, org=self.org, record=point)
+        except Exception as e:
+            print(f"Error writing alert to InfluxDB: {e}")
+        finally:
+            client.close()
+
 # Singleton instance
 influx_manager = InfluxManager()
 

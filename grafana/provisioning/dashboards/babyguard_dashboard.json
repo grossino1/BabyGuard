@@ -28,7 +28,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 0
+        "y": 4
       },
       "id": 1,
       "title": "Frequenza Cardiaca (Heart Rate)",
@@ -80,7 +80,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 0
+        "y": 4
       },
       "id": 2,
       "title": "Temperatura Corporea",
@@ -132,7 +132,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 12
       },
       "id": 3,
       "title": "Frequenza Respiratoria (Breathing Rate)",
@@ -184,7 +184,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 12
       },
       "id": 4,
       "title": "Posizione / Orientamento Neonato",
@@ -211,6 +211,377 @@
           "unit": "none"
         }
       }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 5,
+      "title": "Stato Complessivo Paziente",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "babyguard-influxdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "babyguard-influxdb"
+          },
+          "query": "from(bucket: \"babyguard_bucket\")\n  |> range(start: -1d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"alerts\")\n  |> filter(fn: (r) => r[\"shirt_id\"] == \"${shirt_id}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"is_resolved\")\n  |> last()\n  |> map(fn: (r) => ({ _time: r._time, _value: if r._value == 0 then \"CRITICO\" else \"STABILE\" }))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "match": "null",
+                "result": {
+                  "color": "green",
+                  "text": "STABILE"
+                }
+              },
+              "type": "special"
+            },
+            {
+              "options": {
+                "match": "empty",
+                "result": {
+                  "color": "green",
+                  "text": "STABILE"
+                }
+              },
+              "type": "special"
+            },
+            {
+              "options": {
+                "STABILE": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "STABILE"
+                },
+                "CRITICO": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "ALERT ATTIVO"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value"
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 6,
+      "title": "Batteria Wearable",
+      "type": "gauge",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "babyguard-influxdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "babyguard-influxdb"
+          },
+          "query": "from(bucket: \"babyguard_bucket\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"device_diagnostics\")\n  |> filter(fn: (r) => r[\"shirt_id\"] == \"${shirt_id}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"state_of_charge\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "green",
+                "value": 40
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 7,
+      "title": "Scheda Anamnestica e Dati Neonato",
+      "type": "table",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "babyguard-influxdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "babyguard-influxdb"
+          },
+          "query": "from(bucket: \"babyguard_bucket\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"neonate_metadata\")\n  |> filter(fn: (r) => r[\"shirt_id\"] == \"${shirt_id}\")\n  |> last()\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"first_name\", \"last_name\", \"gender\", \"age\", \"gestational_age_weeks\", \"height\", \"weight\"])",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "first_name": 0,
+              "last_name": 1,
+              "gender": 2,
+              "age": 3,
+              "gestational_age_weeks": 4,
+              "height": 5,
+              "weight": 6
+            },
+            "renameByName": {}
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Nome"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cognome"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gender"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Sesso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "age"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Età (mesi)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gestational_age_weeks"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Età Gest. (sett)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "height"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Altezza (cm)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "weight"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Peso (kg)"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 8,
+      "title": "Storico Anomalie / Alert Clinici",
+      "type": "table",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "babyguard-influxdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "babyguard-influxdb"
+          },
+          "query": "from(bucket: \"babyguard_bucket\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"alerts\")\n  |> filter(fn: (r) => r[\"shirt_id\"] == \"${shirt_id}\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"_time\", \"alert_type\", \"message\", \"severity\"])\n  |> group()\n  |> sort(columns: [\"_time\"], desc: true)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "enableFilter": true,
+        "enablePagination": false,
+        "footer": {
+          "show": false,
+          "reducer": [],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Data/Ora Evento"
+              },
+              {
+                "id": "custom.filterable",
+                "value": false
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "alert_type"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tipo Allarme"
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Descrizione"
+              },
+              {
+                "id": "custom.filterable",
+                "value": false
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Gravità"
+              },
+              {
+                "id": "custom.filterable",
+                "value": false
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "schemaVersion": 38,
@@ -219,7 +590,11 @@
   "templating": {
     "list": [
       {
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "tshirt001",
+          "value": "tshirt001"
+        },
         "datasource": {
           "type": "influxdb",
           "uid": "babyguard-influxdb"
@@ -230,7 +605,13 @@
         "label": "Bambino (Shirt ID)",
         "multi": false,
         "name": "shirt_id",
-        "options": [],
+        "options": [
+          {
+            "selected": true,
+            "text": "tshirt001",
+            "value": "tshirt001"
+          }
+        ],
         "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"babyguard_bucket\", tag: \"shirt_id\")",
         "refresh": 1,
         "regex": "",
@@ -247,5 +628,5 @@
   "timepicker": {},
   "timezone": "",
   "title": "BabyGuard Clinical Dashboard",
-  "version": 1
+  "version": 18
 }
