@@ -32,7 +32,7 @@ def calculate_age_months(birth_date) -> int:
     if hasattr(birth_date, "tzinfo") and birth_date.tzinfo is not None:
         now = now.astimezone(birth_date.tzinfo)
     delta = now - birth_date
-    return max(0, int(delta.days / 30.4375))
+    return max(0, round(delta.days / 30.4375))
 
 # --- NEONATE CRUD ---
 async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, parent_id: int):
@@ -44,6 +44,7 @@ async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, paren
         parent_id=parent_id,
         doctor_id=doctor_id
     )
+    db_neonate.age = calculate_age_months(db_neonate.birth_date)
     db.add(db_neonate)
     await db.commit()
     await db.refresh(db_neonate)
@@ -53,7 +54,6 @@ async def create_neonate(db: AsyncSession, neonate: schemas.NeonateCreate, paren
     db.add(db_thresholds)
     
     await db.commit()
-    db_neonate.age = calculate_age_months(db_neonate.birth_date)
     
     # Sincronizza i metadati su InfluxDB
     if db_neonate.device_id:
@@ -85,9 +85,10 @@ async def update_neonate(db: AsyncSession, neonate_id: int, neonate_update: sche
     for key, value in update_data.items():
         setattr(db_neonate, key, value)
         
+    db_neonate.age = calculate_age_months(db_neonate.birth_date)
+    
     await db.commit()
     await db.refresh(db_neonate)
-    db_neonate.age = calculate_age_months(db_neonate.birth_date)
     
     # Sincronizza i metadati su InfluxDB
     if db_neonate.device_id:

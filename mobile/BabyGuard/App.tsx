@@ -15,7 +15,9 @@ import {
   Platform,
   KeyboardAvoidingView,
   Linking,
-  Image
+  Image,
+  Pressable,
+  Animated
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import * as Notifications from 'expo-notifications';
@@ -121,6 +123,11 @@ interface LiveData {
   battery_charging?: number;
 }
 
+interface HistoryEntry {
+  value: number | string;
+  time: string;
+}
+
 interface Doctor {
   id: number;
   username: string;
@@ -171,6 +178,22 @@ export default function App() {
   const [alerts, setAlerts] = useState<AlertLog[]>([]);
   const [ahiData, setAhiData] = useState<{ ahi_index: number; apnea_count: number; hours: number; status: string } | null>(null);
   const [liveData, setLiveData] = useState<LiveData>({});
+  const [hrHistory, setHrHistory] = useState<HistoryEntry[]>([]);
+  const [tempHistory, setTempHistory] = useState<HistoryEntry[]>([]);
+  const [brHistory, setBrHistory] = useState<HistoryEntry[]>([]);
+  const [posHistory, setPosHistory] = useState<HistoryEntry[]>([]);
+
+  const [flippedHr, setFlippedHr] = useState(false);
+  const [flippedTemp, setFlippedTemp] = useState(false);
+  const [flippedBr, setFlippedBr] = useState(false);
+  const [flippedPos, setFlippedPos] = useState(false);
+  const [parentScrollEnabled, setParentScrollEnabled] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const flipAnimHr = useRef(new Animated.Value(0)).current;
+  const flipAnimTemp = useRef(new Animated.Value(0)).current;
+  const flipAnimBr = useRef(new Animated.Value(0)).current;
+  const flipAnimPos = useRef(new Animated.Value(0)).current;
   const [chartSamples, setChartSamples] = useState<number[]>([]);
   const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(0);
   const lastDataTimestampRef = useRef<number>(0);
@@ -424,6 +447,18 @@ export default function App() {
     setAhiData(null);
     setLiveData({});
     setChartSamples([]);
+    setHrHistory([]);
+    setTempHistory([]);
+    setBrHistory([]);
+    setPosHistory([]);
+    setFlippedHr(false);
+    setFlippedTemp(false);
+    setFlippedBr(false);
+    setFlippedPos(false);
+    flipAnimHr.setValue(0);
+    flipAnimTemp.setValue(0);
+    flipAnimBr.setValue(0);
+    flipAnimPos.setValue(0);
     setLastDataTimestamp(0);
     lastDataTimestampRef.current = 0;
     setShirtConnected(false);
@@ -670,6 +705,18 @@ export default function App() {
     setAhiData(null);
     setLiveData({});
     setChartSamples([]);
+    setHrHistory([]);
+    setTempHistory([]);
+    setBrHistory([]);
+    setPosHistory([]);
+    setFlippedHr(false);
+    setFlippedTemp(false);
+    setFlippedBr(false);
+    setFlippedPos(false);
+    flipAnimHr.setValue(0);
+    flipAnimTemp.setValue(0);
+    flipAnimBr.setValue(0);
+    flipAnimPos.setValue(0);
     setLastDataTimestamp(0);
     lastDataTimestampRef.current = 0;
     setShirtConnected(false);
@@ -756,6 +803,8 @@ export default function App() {
                   const prevHr = prev.heartrate;
                   // Exponential Moving Average filter (alpha = 0.2) to smooth heartrate transitions
                   const smoothHr = prevHr && prevHr > 0 ? Math.round(0.2 * hr + 0.8 * prevHr) : hr;
+                  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  setHrHistory((prevHistory) => [...prevHistory.slice(-19), { value: smoothHr, time: timeStr }]);
                   return { ...prev, heartrate: smoothHr };
                 });
                 setChartSamples((prevSamples) => {
@@ -783,6 +832,8 @@ export default function App() {
                   const prevTemp = prev.temperature;
                   // EMA filter (alpha = 0.15) for smooth temperature changes
                   const smoothTemp = prevTemp && prevTemp > 0 ? Number((0.15 * temp + 0.85 * prevTemp).toFixed(2)) : temp;
+                  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  setTempHistory((prevHistory) => [...prevHistory.slice(-19), { value: smoothTemp, time: timeStr }]);
                   return { ...prev, temperature: smoothTemp };
                 });
               }
@@ -793,13 +844,19 @@ export default function App() {
                   const prevBr = prev.breathrate;
                   // EMA filter (alpha = 0.2) to smooth respiratory rates
                   const smoothBr = prevBr && prevBr > 0 ? Math.round(0.2 * br + 0.8 * prevBr) : br;
+                  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  setBrHistory((prevHistory) => [...prevHistory.slice(-19), { value: smoothBr, time: timeStr }]);
                   return { ...prev, breathrate: smoothBr };
                 });
               }
             } else if (type === 'BABY_ORIENTATION' || type === 'ACC_GYRO') {
               const orientation = payload.orientation;
               if (orientation !== undefined) {
-                setLiveData((prev) => ({ ...prev, orientation }));
+                setLiveData((prev) => {
+                  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  setPosHistory((prevHistory) => [...prevHistory.slice(-19), { value: getOrientationText(orientation), time: timeStr }]);
+                  return { ...prev, orientation };
+                });
               }
             } else if (type === 'BATTERY_INFO') {
               const soc = payload.state_of_charge;
@@ -857,6 +914,18 @@ export default function App() {
         setShirtConnected(false);
         setLiveData({});
         setRawEcgBuffer([]);
+        setHrHistory([]);
+        setTempHistory([]);
+        setBrHistory([]);
+        setPosHistory([]);
+        setFlippedHr(false);
+        setFlippedTemp(false);
+        setFlippedBr(false);
+        setFlippedPos(false);
+        flipAnimHr.setValue(0);
+        flipAnimTemp.setValue(0);
+        flipAnimBr.setValue(0);
+        flipAnimPos.setValue(0);
       }
     }, 2000);
     return () => clearInterval(interval);
@@ -1479,6 +1548,98 @@ export default function App() {
     return `Codice ${code}`;
   };
 
+  const flipCard = (animValue: Animated.Value, toValue: number) => {
+    Animated.spring(animValue, {
+      toValue,
+      friction: 8,
+      tension: 10,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleFlipHr = (targetState: boolean) => {
+    setFlippedHr(targetState);
+    flipCard(flipAnimHr, targetState ? 1 : 0);
+  };
+
+  const handleFlipTemp = (targetState: boolean) => {
+    setFlippedTemp(targetState);
+    flipCard(flipAnimTemp, targetState ? 1 : 0);
+  };
+
+  const handleFlipBr = (targetState: boolean) => {
+    setFlippedBr(targetState);
+    flipCard(flipAnimBr, targetState ? 1 : 0);
+  };
+
+  const handleFlipPos = (targetState: boolean) => {
+    setFlippedPos(targetState);
+    flipCard(flipAnimPos, targetState ? 1 : 0);
+  };
+
+  // 3D Flip Anim Interpolations
+  const frontInterpolateHr = flipAnimHr.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
+  const backInterpolateHr = flipAnimHr.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
+  const frontOpacityHr = flipAnimHr.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [1, 1, 0, 0] });
+  const backOpacityHr = flipAnimHr.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [0, 0, 1, 1] });
+
+  const frontInterpolateTemp = flipAnimTemp.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
+  const backInterpolateTemp = flipAnimTemp.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
+  const frontOpacityTemp = flipAnimTemp.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [1, 1, 0, 0] });
+  const backOpacityTemp = flipAnimTemp.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [0, 0, 1, 1] });
+
+  const frontInterpolateBr = flipAnimBr.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
+  const backInterpolateBr = flipAnimBr.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
+  const frontOpacityBr = flipAnimBr.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [1, 1, 0, 0] });
+  const backOpacityBr = flipAnimBr.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [0, 0, 1, 1] });
+
+  const frontInterpolatePos = flipAnimPos.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
+  const backInterpolatePos = flipAnimPos.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
+  const frontOpacityPos = flipAnimPos.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [1, 1, 0, 0] });
+  const backOpacityPos = flipAnimPos.interpolate({ inputRange: [0, 0.5, 0.51, 1], outputRange: [0, 0, 1, 1] });
+
+  const renderCardFront = (emoji: string, val: string | number, unit: string, title: string, isSmallVal = false) => (
+    <>
+      <View style={styles.cardFrontHeader}>
+        <Text style={styles.cardEmoji}>{emoji}</Text>
+      </View>
+      <Text style={isSmallVal ? styles.cardValSmall : styles.cardVal}>{val}</Text>
+      <Text style={styles.cardUnit}>{unit || ' '}</Text>
+      <Text style={styles.cardTitle}>{title}</Text>
+    </>
+  );
+
+  const renderCardBack = (title: string, history: HistoryEntry[], unit: string, onFlipBack: () => void) => (
+    <Pressable onPress={onFlipBack} style={{ flex: 1 }}>
+      <View style={styles.cardBackHeader}>
+        <Text style={styles.cardBackTitle}>{title}</Text>
+        <Text style={styles.cardBackClose}>✕</Text>
+      </View>
+      {history.length === 0 ? (
+        <Pressable onPress={onFlipBack} style={styles.emptyHistoryContainer}>
+          <Text style={styles.noHistoryText}>Nessun dato registrato</Text>
+        </Pressable>
+      ) : (
+        <ScrollView 
+          style={styles.historyScroll} 
+          nestedScrollEnabled={true}
+          onTouchStart={() => setParentScrollEnabled(false)}
+          onTouchEnd={() => setParentScrollEnabled(true)}
+          onTouchCancel={() => setParentScrollEnabled(true)}
+        >
+          <Pressable onPress={onFlipBack}>
+            {history.slice().reverse().map((item, idx) => (
+              <View key={idx} style={styles.historyRow}>
+                <Text style={styles.historyVal}>{item.value}{unit ? ` ${unit}` : ''}</Text>
+                <Text style={styles.historyTime}>{item.time}</Text>
+              </View>
+            ))}
+          </Pressable>
+        </ScrollView>
+      )}
+    </Pressable>
+  );
+
   // --- RENDERING ---
   return (
     <SafeAreaView style={styles.container}>
@@ -1712,36 +1873,52 @@ export default function App() {
                 </>
               )}
 
-              <TextInput
-                style={[styles.authInput, validationErrors.password && styles.inputError]}
-                placeholder="Password"
-                placeholderTextColor="#888"
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  if (validationErrors.password) setValidationErrors(prev => ({ ...prev, password: '' }));
-                }}
-                secureTextEntry
-                autoCapitalize="none"
-              />
+              <View style={[
+                styles.passwordContainer,
+                validationErrors.password ? styles.inputError : null
+              ]}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Password"
+                  placeholderTextColor="#888"
+                  value={password}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    if (validationErrors.password) setValidationErrors(prev => ({ ...prev, password: '' }));
+                  }}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
+                  <Text style={[styles.eyeIcon, showPassword && { color: C.mint }]}>👁️</Text>
+                </TouchableOpacity>
+              </View>
               {validationErrors.password ? (
                 <Text style={styles.errorText}>{validationErrors.password}</Text>
               ) : null}
 
               {isRegistering && (
                 <>
-                  <TextInput
-                    style={[styles.authInput, validationErrors.confirmPassword && styles.inputError]}
-                    placeholder="Conferma Password"
-                    placeholderTextColor="#888"
-                    value={confirmPassword}
-                    onChangeText={(text) => {
-                      setConfirmPassword(text);
-                      if (validationErrors.confirmPassword) setValidationErrors(prev => ({ ...prev, confirmPassword: '' }));
-                    }}
-                    secureTextEntry
-                    autoCapitalize="none"
-                  />
+                  <View style={[
+                    styles.passwordContainer,
+                    validationErrors.confirmPassword ? styles.inputError : null
+                  ]}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder="Conferma Password"
+                      placeholderTextColor="#888"
+                      value={confirmPassword}
+                      onChangeText={(text) => {
+                        setConfirmPassword(text);
+                        if (validationErrors.confirmPassword) setValidationErrors(prev => ({ ...prev, confirmPassword: '' }));
+                      }}
+                      secureTextEntry={!showConfirmPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeButton}>
+                      <Text style={[styles.eyeIcon, showConfirmPassword && { color: C.mint }]}>👁️</Text>
+                    </TouchableOpacity>
+                  </View>
                   {validationErrors.confirmPassword ? (
                     <Text style={styles.errorText}>{validationErrors.confirmPassword}</Text>
                   ) : null}
@@ -1858,7 +2035,7 @@ export default function App() {
           </View>
 
           {selectedNeonate ? (
-            <ScrollView style={styles.scrollContent}>
+            <ScrollView style={styles.scrollContent} scrollEnabled={parentScrollEnabled}>
               {role === 'parent' && (
                 <TouchableOpacity onPress={openEditBabyModal} style={styles.editNeonateBtn}>
                   <Text style={styles.editNeonateBtnText}>✏️ Modifica Dati Neonato</Text>
@@ -1940,39 +2117,92 @@ export default function App() {
               {/* LIVE VALUES PANEL */}
               <View style={styles.liveGrid}>
                 {/* Heart Rate Card */}
-                <View style={[styles.liveCard, styles.cardHr]}>
-                  <Text style={styles.cardEmoji}>❤️</Text>
-                  <Text style={styles.cardVal}>{liveData.heartrate || '--'}</Text>
-                  <Text style={styles.cardUnit}>BPM</Text>
-                  <Text style={styles.cardTitle}>Battito Cardiaco</Text>
-                </View>
+                {role === 'parent' ? (
+                  <View style={styles.cardContainer}>
+                    <Animated.View style={[styles.liveCard, styles.cardHr, { transform: [{ rotateY: frontInterpolateHr }], opacity: frontOpacityHr, marginBottom: 0 }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => handleFlipHr(true)}
+                        style={styles.cardTouchWrapper}
+                      >
+                        {renderCardFront('❤️', liveData.heartrate || '--', 'BPM', 'Battito Cardiaco')}
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={[styles.liveCard, styles.cardHr, styles.cardFlipped, { transform: [{ rotateY: backInterpolateHr }], opacity: backOpacityHr, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                      {renderCardBack('Storico BPM', hrHistory, 'BPM', () => handleFlipHr(false))}
+                    </Animated.View>
+                  </View>
+                ) : (
+                  <View style={[styles.liveCard, styles.cardHr]}>
+                    {renderCardFront('❤️', liveData.heartrate || '--', 'BPM', 'Battito Cardiaco')}
+                  </View>
+                )}
 
                 {/* Temperature Card */}
-                <View style={[styles.liveCard, styles.cardTemp]}>
-                  <Text style={styles.cardEmoji}>🌡️</Text>
-                  <Text style={styles.cardVal}>
-                    {liveData.temperature !== undefined ? `${liveData.temperature.toFixed(1)}` : '--'}
-                  </Text>
-                  <Text style={styles.cardUnit}>°C</Text>
-                  <Text style={styles.cardTitle}>Temperatura</Text>
-                </View>
+                {role === 'parent' ? (
+                  <View style={styles.cardContainer}>
+                    <Animated.View style={[styles.liveCard, styles.cardTemp, { transform: [{ rotateY: frontInterpolateTemp }], opacity: frontOpacityTemp, marginBottom: 0 }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => handleFlipTemp(true)}
+                        style={styles.cardTouchWrapper}
+                      >
+                        {renderCardFront('🌡️', liveData.temperature !== undefined ? `${liveData.temperature.toFixed(1)}` : '--', '°C', 'Temperatura')}
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={[styles.liveCard, styles.cardTemp, styles.cardFlipped, { transform: [{ rotateY: backInterpolateTemp }], opacity: backOpacityTemp, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                      {renderCardBack('Storico Temp', tempHistory, '°C', () => handleFlipTemp(false))}
+                    </Animated.View>
+                  </View>
+                ) : (
+                  <View style={[styles.liveCard, styles.cardTemp]}>
+                    {renderCardFront('🌡️', liveData.temperature !== undefined ? `${liveData.temperature.toFixed(1)}` : '--', '°C', 'Temperatura')}
+                  </View>
+                )}
 
                 {/* Breathing Rate Card */}
-                <View style={[styles.liveCard, styles.cardBr]}>
-                  <Text style={styles.cardEmoji}>🫁</Text>
-                  <Text style={styles.cardVal}>{liveData.breathrate || '--'}</Text>
-                  <Text style={styles.cardUnit}>atti/min</Text>
-                  <Text style={styles.cardTitle}>Respiro</Text>
-                </View>
+                {role === 'parent' ? (
+                  <View style={styles.cardContainer}>
+                    <Animated.View style={[styles.liveCard, styles.cardBr, { transform: [{ rotateY: frontInterpolateBr }], opacity: frontOpacityBr, marginBottom: 0 }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => handleFlipBr(true)}
+                        style={styles.cardTouchWrapper}
+                      >
+                        {renderCardFront('🫁', liveData.breathrate || '--', 'atti/min', 'Respiro')}
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={[styles.liveCard, styles.cardBr, styles.cardFlipped, { transform: [{ rotateY: backInterpolateBr }], opacity: backOpacityBr, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                      {renderCardBack('Storico Respiro', brHistory, 'atti/m', () => handleFlipBr(false))}
+                    </Animated.View>
+                  </View>
+                ) : (
+                  <View style={[styles.liveCard, styles.cardBr]}>
+                    {renderCardFront('🫁', liveData.breathrate || '--', 'atti/min', 'Respiro')}
+                  </View>
+                )}
 
                 {/* Position Card */}
-                <View style={[styles.liveCard, styles.cardPos]}>
-                  <Text style={styles.cardEmoji}>🧘</Text>
-                  <Text style={styles.cardValSmall}>
-                    {liveData.orientation !== undefined ? getOrientationText(liveData.orientation) : '--'}
-                  </Text>
-                  <Text style={styles.cardTitle}>Postura Sonno</Text>
-                </View>
+                {role === 'parent' ? (
+                  <View style={styles.cardContainer}>
+                    <Animated.View style={[styles.liveCard, styles.cardPos, { transform: [{ rotateY: frontInterpolatePos }], opacity: frontOpacityPos, marginBottom: 0 }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => handleFlipPos(true)}
+                        style={styles.cardTouchWrapper}
+                      >
+                        {renderCardFront('🧘', liveData.orientation !== undefined ? getOrientationText(liveData.orientation) : '--', '', 'Postura Sonno', true)}
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View style={[styles.liveCard, styles.cardPos, styles.cardFlipped, { transform: [{ rotateY: backInterpolatePos }], opacity: backOpacityPos, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                      {renderCardBack('Storico Postura', posHistory, '', () => handleFlipPos(false))}
+                    </Animated.View>
+                  </View>
+                ) : (
+                  <View style={[styles.liveCard, styles.cardPos]}>
+                    {renderCardFront('🧘', liveData.orientation !== undefined ? getOrientationText(liveData.orientation) : '--', '', 'Postura Sonno', true)}
+                  </View>
+                )}
               </View>
 
               {/* ECG REAL-TIME CHART */}
@@ -2101,10 +2331,22 @@ export default function App() {
                       alert.severity === 'critical' ? styles.alertCritical : alert.severity === 'high' ? styles.alertHigh : styles.alertNormal
                     ]}>
                       <View style={styles.alertHeaderRow}>
-                        <Text style={styles.alertType}>{alert.type}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <Text style={styles.alertType}>{alert.type}</Text>
+                          <View style={[
+                            styles.alertSeverityBadge,
+                            alert.severity === 'critical' ? styles.badgeCritical : alert.severity === 'high' ? styles.badgeHigh : styles.badgeNormal
+                          ]}>
+                            <Text style={styles.alertSeverityBadgeText}>
+                              {alert.severity.toUpperCase()}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 8 }}>
                           {alert.is_resolved ? (
-                            <Text style={styles.resolvedBadge}>RISOLTO</Text>
+                            <View style={styles.resolvedBadge}>
+                              <Text style={styles.resolvedBadgeText}>RISOLTO</Text>
+                            </View>
                           ) : (
                             role === 'parent' && (
                               <TouchableOpacity
@@ -2115,12 +2357,6 @@ export default function App() {
                               </TouchableOpacity>
                             )
                           )}
-                          <Text style={[
-                            styles.alertSeverityBadge,
-                            alert.severity === 'critical' ? styles.badgeCritical : alert.severity === 'high' ? styles.badgeHigh : styles.badgeNormal
-                          ]}>
-                            {alert.severity.toUpperCase()}
-                          </Text>
                         </View>
                       </View>
                       <Text style={styles.alertMsg}>{alert.message}</Text>
@@ -3255,7 +3491,8 @@ const styles = StyleSheet.create({
   liveCard: {
     width: (Dimensions.get('window').width - 44) / 2, // VINCOLO: non modificare
     borderRadius: 20,
-    padding: 18,
+    padding: 14,
+    height: 130,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -3304,6 +3541,106 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     marginTop: 6,
     fontWeight: '600',
+  },
+  cardFlipped: {
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+  },
+  cardContainer: {
+    width: (Dimensions.get('window').width - 44) / 2,
+    height: 130,
+    position: 'relative',
+  },
+  cardTouchWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.field,
+    borderRadius: 14,
+    height: 52,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingRight: 14,
+  },
+  passwordInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 16,
+    color: C.text,
+    fontSize: 15,
+  },
+  eyeButton: {
+    padding: 4,
+  },
+  eyeIcon: {
+    fontSize: 18,
+    color: C.textMuted,
+  },
+  cardFrontHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  cardTapPrompt: {
+    fontSize: 10,
+    color: C.textMuted,
+    opacity: 0.6,
+  },
+  cardBackHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 6,
+  },
+  cardBackTitle: {
+    color: C.text,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    opacity: 0.7,
+  },
+  cardBackClose: {
+    color: C.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  emptyHistoryContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 70,
+  },
+  noHistoryText: {
+    color: C.textDim,
+    fontSize: 10,
+    fontStyle: 'italic',
+  },
+  historyScroll: {
+    flex: 1,
+    maxHeight: 75,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  historyVal: {
+    color: C.text,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  historyTime: {
+    color: C.textMuted,
+    fontSize: 8,
   },
 
   // ---------- ECG CHART CARD ----------
@@ -3497,13 +3834,14 @@ const styles = StyleSheet.create({
   },
   resolvedBadge: {
     backgroundColor: C.greenTint,
-    color: C.green,
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 8,
+  },
+  resolvedBadgeText: {
+    color: C.green,
     fontSize: 10,
     fontWeight: '700',
-    overflow: 'hidden',
   },
   resolveBtn: {
     backgroundColor: C.mint,
@@ -3517,13 +3855,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   alertSeverityBadge: {
-    color: C.onAccent,
     paddingVertical: 2,
     paddingHorizontal: 7,
     borderRadius: 8,
+  },
+  alertSeverityBadgeText: {
+    color: C.onAccent,
     fontSize: 9,
     fontWeight: '800',
-    overflow: 'hidden',
   },
   badgeCritical: {
     backgroundColor: C.red,
@@ -3544,6 +3883,7 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     fontSize: 10,
     textAlign: 'right',
+    marginTop: 4,
   },
 
   // ---------- EMPTY STATE ----------
