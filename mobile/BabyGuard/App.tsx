@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import * as React from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -147,7 +148,7 @@ export default function App() {
         return match[1];
       }
     }
-    return '192.168.1.58';
+    return '192.168.2.60';
   };
 
   const [backendIp, setBackendIp] = useState(getDefaultIp());
@@ -199,6 +200,7 @@ export default function App() {
   const lastDataTimestampRef = useRef<number>(0);
   const [shirtConnected, setShirtConnected] = useState<boolean>(false);
   const [rawEcgBuffer, setRawEcgBuffer] = useState<number[]>([]);
+  const ecgBufferRef = useRef<number[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [associateDeviceId, setAssociateDeviceId] = useState('');
 
@@ -213,12 +215,14 @@ export default function App() {
   // Doctor Modals & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [editThresholdsModal, setEditThresholdsModal] = useState(false);
-  const [tempHrMin, setTempHrMin] = useState('');
-  const [tempHrMax, setTempHrMax] = useState('');
-  const [tempTempMin, setTempTempMin] = useState('');
-  const [tempTempMax, setTempTempMax] = useState('');
-  const [tempBrMin, setTempBrMin] = useState('');
-  const [tempBrMax, setTempBrMax] = useState('');
+  const [tempHrMin, setTempHrMin] = useState<number>(60);
+  const [tempHrMax, setTempHrMax] = useState<number>(160);
+  const [tempTempMin, setTempTempMin] = useState<number>(36.0);
+  const [tempTempMax, setTempTempMax] = useState<number>(37.5);
+  const [tempBrMin, setTempBrMin] = useState<number>(20);
+  const [tempBrMax, setTempBrMax] = useState<number>(60);
+
+
 
   // Parent Create Baby Form
   const [showAddBabyModal, setShowAddBabyModal] = useState(false);
@@ -459,6 +463,7 @@ export default function App() {
     flipAnimTemp.setValue(0);
     flipAnimBr.setValue(0);
     flipAnimPos.setValue(0);
+    ecgBufferRef.current = [];
     setLastDataTimestamp(0);
     lastDataTimestampRef.current = 0;
     setShirtConnected(false);
@@ -686,12 +691,12 @@ export default function App() {
         if (tResp.ok) {
           const tData = await tResp.json();
           setThresholds(tData);
-          setTempHrMin(String(tData.hr_min));
-          setTempHrMax(String(tData.hr_max));
-          setTempTempMin(String(tData.temp_min));
-          setTempTempMax(String(tData.temp_max));
-          setTempBrMin(String(tData.br_min));
-          setTempBrMax(String(tData.br_max));
+          setTempHrMin(tData.hr_min);
+          setTempHrMax(tData.hr_max);
+          setTempTempMin(tData.temp_min);
+          setTempTempMax(tData.temp_max);
+          setTempBrMin(tData.br_min);
+          setTempBrMax(tData.br_max);
         }
       } catch (e) {
         console.error('Fetch thresholds error:', e);
@@ -717,6 +722,7 @@ export default function App() {
     flipAnimTemp.setValue(0);
     flipAnimBr.setValue(0);
     flipAnimPos.setValue(0);
+    ecgBufferRef.current = [];
     setLastDataTimestamp(0);
     lastDataTimestampRef.current = 0;
     setShirtConnected(false);
@@ -813,14 +819,11 @@ export default function App() {
                   return [...prevSamples.slice(-15), smoothHr];
                 });
               }
-              // Salvataggio dei campioni ECG per il grafico real-time
+              // Salvataggio dei campioni ECG nel buffer ref (per evitare re-render continui)
               if (type === 'ECG' && payload.samples && Array.isArray(payload.samples)) {
                 const newSamples = payload.samples;
-                setRawEcgBuffer((prev) => {
-                  // Mantiene gli ultimi 150 campioni per una visualizzazione ottimale a schermo
-                  const combined = [...prev, ...newSamples];
-                  return combined.slice(-150);
-                });
+                const combined = [...ecgBufferRef.current, ...newSamples];
+                ecgBufferRef.current = combined.slice(-150);
               }
             } else if (type === 'TEMPERATURE') {
               let temp = payload.temperature;
@@ -914,6 +917,7 @@ export default function App() {
         setShirtConnected(false);
         setLiveData({});
         setRawEcgBuffer([]);
+        ecgBufferRef.current = [];
         setHrHistory([]);
         setTempHistory([]);
         setBrHistory([]);
@@ -930,6 +934,16 @@ export default function App() {
     }, 2000);
     return () => clearInterval(interval);
   }, [wsConnected]);
+
+  // --- ECG BUFFER FLUSHER (10Hz throttle per massimizzare fluidità) ---
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (ecgBufferRef.current.length > 0) {
+        setRawEcgBuffer(ecgBufferRef.current);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
   // --- RESOLVE ALERT (Acknowledge) ---
   const handleResolveAlert = async (alertId: number) => {
@@ -1133,21 +1147,21 @@ export default function App() {
     }
 
     if (babyHeight.trim()) {
-      const heightVal = parseFloat(babyHeight.trim());
-      if (isNaN(heightVal) || heightVal <= 0 || heightVal > 150) {
+      const heightVal = parseFloat(babyHeight.trim().replace(',', '.'));
+      if (isNaN(heightVal) || heightVal < 1 || heightVal > 150) {
         errs.height = "L'altezza deve essere un numero valido tra 1 e 150 cm.";
       }
     }
 
     if (babyWeight.trim()) {
-      const weightVal = parseFloat(babyWeight.trim());
-      if (isNaN(weightVal) || weightVal <= 0 || weightVal > 50) {
-        errs.weight = "Il peso deve essere un numero valido tra 0.1 e 50 kg.";
+      const weightVal = parseFloat(babyWeight.trim().replace(',', '.'));
+      if (isNaN(weightVal) || weightVal < 0.5 || weightVal > 50) {
+        errs.weight = "Il peso deve essere un numero valido tra 0.5 e 50 kg.";
       }
     }
 
     if (babyGestationalAge.trim()) {
-      const gAge = parseFloat(babyGestationalAge.trim());
+      const gAge = parseFloat(babyGestationalAge.trim().replace(',', '.'));
       if (isNaN(gAge) || gAge < 20 || gAge > 46) {
         errs.gestationalAge = "L'età gestazionale deve essere tra 20 e 46 settimane.";
       }
@@ -1189,10 +1203,10 @@ export default function App() {
           gender: babyGender,
           device_id: cleanDeviceId,
           doctor_id: selectedDoctorId,
-          height: babyHeight.trim() ? parseFloat(babyHeight.trim()) : null,
-          weight: babyWeight.trim() ? parseFloat(babyWeight.trim()) : null,
+          height: babyHeight.trim() ? parseFloat(babyHeight.trim().replace(',', '.')) : null,
+          weight: babyWeight.trim() ? parseFloat(babyWeight.trim().replace(',', '.')) : null,
           age: babyAge.trim() ? parseInt(babyAge.trim()) : null,
-          gestational_age_weeks: babyGestationalAge.trim() ? parseFloat(babyGestationalAge.trim()) : null
+          gestational_age_weeks: babyGestationalAge.trim() ? parseFloat(babyGestationalAge.trim().replace(',', '.')) : null
         })
       });
 
@@ -1249,13 +1263,23 @@ export default function App() {
       }
     }
     if (babyGestationalAge.trim()) {
-      const gAge = parseFloat(babyGestationalAge.trim());
+      const gAge = parseFloat(babyGestationalAge.trim().replace(',', '.'));
       if (isNaN(gAge) || gAge < 20 || gAge > 46) {
         errs.gestationalAge = "L'età gestazionale deve essere tra 20 e 46 settimane.";
       }
     }
-    if (babyHeight.trim() && isNaN(parseFloat(babyHeight.trim()))) errs.height = "Altezza non valida.";
-    if (babyWeight.trim() && isNaN(parseFloat(babyWeight.trim()))) errs.weight = "Peso non valido.";
+    if (babyHeight.trim()) {
+      const heightVal = parseFloat(babyHeight.trim().replace(',', '.'));
+      if (isNaN(heightVal) || heightVal < 1 || heightVal > 150) {
+        errs.height = "L'altezza deve essere un numero valido tra 1 e 150 cm.";
+      }
+    }
+    if (babyWeight.trim()) {
+      const weightVal = parseFloat(babyWeight.trim().replace(',', '.'));
+      if (isNaN(weightVal) || weightVal < 0.5 || weightVal > 50) {
+        errs.weight = "Il peso deve essere un numero valido tra 0.5 e 50 kg.";
+      }
+    }
     if (!selectedDoctorId) errs.doctorId = "Seleziona un pediatra.";
 
     if (Object.keys(errs).length > 0) {
@@ -1283,10 +1307,10 @@ export default function App() {
           last_name: cleanLastName,
           birth_date: computedBirthDate.toISOString(),
           gender: babyGender,
-          height: babyHeight.trim() ? parseFloat(babyHeight.trim()) : null,
-          weight: babyWeight.trim() ? parseFloat(babyWeight.trim()) : null,
+          height: babyHeight.trim() ? parseFloat(babyHeight.trim().replace(',', '.')) : null,
+          weight: babyWeight.trim() ? parseFloat(babyWeight.trim().replace(',', '.')) : null,
           age: ageMonths,
-          gestational_age_weeks: babyGestationalAge.trim() ? parseFloat(babyGestationalAge.trim()) : null,
+          gestational_age_weeks: babyGestationalAge.trim() ? parseFloat(babyGestationalAge.trim().replace(',', '.')) : null,
           doctor_id: selectedDoctorId
         })
       });
@@ -1312,15 +1336,15 @@ export default function App() {
   const handleUpdateThresholds = async () => {
     if (!selectedNeonate || !token) return;
 
-    const hrMin = parseInt(tempHrMin);
-    const hrMax = parseInt(tempHrMax);
-    const tempMin = parseFloat(tempTempMin);
-    const tempMax = parseFloat(tempTempMax);
-    const brMin = parseInt(tempBrMin);
-    const brMax = parseInt(tempBrMax);
+    const hrMin = tempHrMin;
+    const hrMax = tempHrMax;
+    const tempMin = tempTempMin;
+    const tempMax = tempTempMax;
+    const brMin = tempBrMin;
+    const brMax = tempBrMax;
 
     // Dynamic thresholds values validation (UI-1.6)
-    if (isNaN(hrMin) || isNaN(hrMax) || isNaN(tempMin) || isNaN(tempMax) || isNaN(brMin) || isNaN(brMax)) {
+    if (hrMin === undefined || hrMax === undefined || tempMin === undefined || tempMax === undefined || brMin === undefined || brMax === undefined) {
       Alert.alert('Errore', 'Inserisci dei numeri validi.');
       return;
     }
@@ -1335,10 +1359,6 @@ export default function App() {
       return;
     }
 
-    if (tempMin < 35.0 || tempMax > 42.0) {
-      Alert.alert('Errore', 'Soglia temperatura non valida. Inserire un valore compreso tra 35.0 e 42.0 °C.');
-      return;
-    }
 
     if (brMin >= brMax) {
       Alert.alert('Errore', 'Frequenza respiratoria minima deve essere inferiore alla massima.');
@@ -1523,17 +1543,27 @@ export default function App() {
   }, [rawEcgBuffer]);
 
   // Indici dei picchi R calcolati sui campioni normalizzati
-  const rPeakIndices = useMemo(() => {
-    return findRPeakIndices(ecgSamplesNormalized);
+  const ecgSamplesDownsampled = useMemo(() => {
+    const data = ecgSamplesNormalized;
+    const downsampled = [];
+    for (let i = 0; i < data.length; i += 2) {
+      downsampled.push(data[i]);
+    }
+    return downsampled;
   }, [ecgSamplesNormalized]);
 
+  // Indici dei picchi R calcolati sui campioni downsampled
+  const rPeakIndices = useMemo(() => {
+    return findRPeakIndices(ecgSamplesDownsampled);
+  }, [ecgSamplesDownsampled]);
+
   const ecgChartData = useMemo(() => {
-    const data = ecgSamplesNormalized.length ? ecgSamplesNormalized : new Array(120).fill(0);
+    const data = ecgSamplesDownsampled.length ? ecgSamplesDownsampled : new Array(75).fill(0);
     return {
       labels: data.map((_, i) => ''),
       datasets: [{ data }]
     };
-  }, [ecgSamplesNormalized]);
+  }, [ecgSamplesDownsampled]);
 
   const getOrientationText = (code: number | undefined) => {
     if (code === undefined) return 'Sconosciuta';
@@ -2234,7 +2264,7 @@ export default function App() {
                   withHorizontalLabels={true} // Mostra l'asse Y con la scala
                   withVerticalLabels={false}   // Nasconde le etichette X
                   getDotProps={(value, index) => {
-                    const isRPeak = rPeakIndices.includes(index);
+                    const isRPeak = rPeakIndices.indexOf(index) !== -1;
                     return {
                       r: isRPeak ? '3' : '0',
                       strokeWidth: isRPeak ? '1' : '0',
@@ -2264,7 +2294,15 @@ export default function App() {
                   <View style={styles.thresholdsHeader}>
                     <Text style={styles.cardSectionTitle}>Soglie di Allarme Cliniche</Text>
                     {role === 'doctor' && (
-                      <TouchableOpacity onPress={() => setEditThresholdsModal(true)} style={styles.editBtn}>
+                      <TouchableOpacity onPress={() => {
+                        setTempHrMin(thresholds ? thresholds.hr_min : 60);
+                        setTempHrMax(thresholds ? thresholds.hr_max : 160);
+                        setTempTempMin(thresholds ? thresholds.temp_min : 36.0);
+                        setTempTempMax(thresholds ? thresholds.temp_max : 37.5);
+                        setTempBrMin(thresholds ? thresholds.br_min : 20);
+                        setTempBrMax(thresholds ? thresholds.br_max : 60);
+                        setEditThresholdsModal(true);
+                      }} style={styles.editBtn}>
                         <Text style={styles.editBtnText}>Modifica 🩺</Text>
                       </TouchableOpacity>
                     )}
@@ -2450,7 +2488,8 @@ export default function App() {
       )}
 
       {/* THRESHOLD EDIT DIALOG (DOCTOR ONLY) */}
-      <Modal visible={editThresholdsModal} animationType="slide" transparent>
+      {editThresholdsModal && (
+        <Modal visible={editThresholdsModal} animationType="slide" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
@@ -2467,13 +2506,13 @@ export default function App() {
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
                   <Text style={styles.modalLabel}>Battito Cardiaco Minimo:</Text>
-                  <Text style={styles.sliderValueText}>{tempHrMin || '0'} BPM</Text>
+                  <Text style={styles.sliderValueText}>{tempHrMin} BPM</Text>
                 </View>
                 <Slider
                   minimumValue={50}
                   maximumValue={120}
-                  value={Number(tempHrMin) || 60}
-                  onValueChange={(val) => setTempHrMin(String(Math.round(val)))}
+                  value={tempHrMin}
+                  onValueChange={(val) => setTempHrMin(Math.round(val))}
                   step={1}
                   minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
@@ -2490,13 +2529,13 @@ export default function App() {
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
                   <Text style={styles.modalLabel}>Battito Cardiaco Massimo:</Text>
-                  <Text style={styles.sliderValueText}>{tempHrMax || '0'} BPM</Text>
+                  <Text style={styles.sliderValueText}>{tempHrMax} BPM</Text>
                 </View>
                 <Slider
                   minimumValue={100}
                   maximumValue={220}
-                  value={Number(tempHrMax) || 160}
-                  onValueChange={(val) => setTempHrMax(String(Math.round(val)))}
+                  value={tempHrMax}
+                  onValueChange={(val) => setTempHrMax(Math.round(val))}
                   step={1}
                   minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
@@ -2513,13 +2552,13 @@ export default function App() {
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
                   <Text style={styles.modalLabel}>Temperatura Minima:</Text>
-                  <Text style={styles.sliderValueText}>{Number(tempTempMin || 36.0).toFixed(1)} °C</Text>
+                  <Text style={styles.sliderValueText}>{Number(tempTempMin).toFixed(1)} °C</Text>
                 </View>
                 <Slider
                   minimumValue={34.0}
                   maximumValue={37.0}
-                  value={Number(tempTempMin) || 36.0}
-                  onValueChange={(val) => setTempTempMin(String(val.toFixed(1)))}
+                  value={tempTempMin}
+                  onValueChange={(val) => setTempTempMin(Number(val.toFixed(1)))}
                   step={0.1}
                   minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
@@ -2536,13 +2575,13 @@ export default function App() {
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
                   <Text style={styles.modalLabel}>Temperatura Massima:</Text>
-                  <Text style={styles.sliderValueText}>{Number(tempTempMax || 37.5).toFixed(1)} °C</Text>
+                  <Text style={styles.sliderValueText}>{Number(tempTempMax).toFixed(1)} °C</Text>
                 </View>
                 <Slider
                   minimumValue={37.0}
                   maximumValue={41.0}
-                  value={Number(tempTempMax) || 37.5}
-                  onValueChange={(val) => setTempTempMax(String(val.toFixed(1)))}
+                  value={tempTempMax}
+                  onValueChange={(val) => setTempTempMax(Number(val.toFixed(1)))}
                   step={0.1}
                   minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
@@ -2559,13 +2598,13 @@ export default function App() {
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
                   <Text style={styles.modalLabel}>Respiro Minimo:</Text>
-                  <Text style={styles.sliderValueText}>{tempBrMin || '0'} atti/min</Text>
+                  <Text style={styles.sliderValueText}>{tempBrMin} atti/min</Text>
                 </View>
                 <Slider
                   minimumValue={10}
                   maximumValue={40}
-                  value={Number(tempBrMin) || 20}
-                  onValueChange={(val) => setTempBrMin(String(Math.round(val)))}
+                  value={tempBrMin}
+                  onValueChange={(val) => setTempBrMin(Math.round(val))}
                   step={1}
                   minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
@@ -2582,13 +2621,13 @@ export default function App() {
               <View style={styles.sliderContainer}>
                 <View style={styles.sliderLabelRow}>
                   <Text style={styles.modalLabel}>Respiro Massimo:</Text>
-                  <Text style={styles.sliderValueText}>{tempBrMax || '0'} atti/min</Text>
+                  <Text style={styles.sliderValueText}>{tempBrMax} atti/min</Text>
                 </View>
                 <Slider
                   minimumValue={30}
                   maximumValue={80}
-                  value={Number(tempBrMax) || 60}
-                  onValueChange={(val) => setTempBrMax(String(Math.round(val)))}
+                  value={tempBrMax}
+                  onValueChange={(val) => setTempBrMax(Math.round(val))}
                   step={1}
                   minimumTrackTintColor="#47C1B0"
                   maximumTrackTintColor="#333"
@@ -2613,6 +2652,7 @@ export default function App() {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+      )}
 
       {/* ADD BABY DIALOG (PARENT ONLY) */}
       <Modal visible={showAddBabyModal} animationType="slide" transparent>
@@ -2973,7 +3013,7 @@ export default function App() {
         </KeyboardAvoidingView>
       </Modal>
       <Text style={{ color: '#555', fontSize: 10, textAlign: 'center', marginVertical: 4 }}>
-        Versione 2.0.9 (Legenda Clinica & Alert Riformattati)
+        Versione 2.1.0 (Ottimizzazione ECG, Slider & Password)
       </Text>
     </SafeAreaView>
   );

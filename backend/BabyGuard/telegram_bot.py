@@ -130,24 +130,13 @@ async def start_telegram_polling():
         print("[TELEGRAM] Token non configurato o default. Polling disattivato.")
         return
         
-    print("[TELEGRAM] Avvio del bot in modalità polling...")
+    print("[TELEGRAM] Avvio del bot in modalità polling con controllo temporale...")
     
-    # Consuma tutti gli aggiornamenti pregressi all'avvio per evitare di processare vecchi messaggi
+    # Rileva il timestamp di avvio del server (in UTC per consistenza con le API di Telegram)
+    start_time = datetime.datetime.now(datetime.timezone.utc).timestamp()
     offset = 0
+    
     async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-            # getUpdates con offset=-1 consuma tutti gli update precedenti fino all'ultimo
-            response = await client.get(url, params={"offset": -1, "timeout": 1})
-            if response.status_code == 200:
-                data = response.json()
-                updates = data.get("result", [])
-                if updates:
-                    offset = updates[-1]["update_id"] + 1
-                    print(f"[TELEGRAM] Consumati {len(updates)} aggiornamenti pregressi all'avvio. Offset impostato a {offset}.")
-        except Exception as e:
-            print(f"[TELEGRAM] Errore nel consumo degli aggiornamenti pregressi all'avvio: {e}")
-
         while True:
             try:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
@@ -161,6 +150,13 @@ async def start_telegram_polling():
                         message = update.get("message")
                         if not message:
                             continue
+                        
+                        # Controllo temporale intelligente sui messaggi pendenti
+                        msg_date = message.get("date")
+                        if msg_date and msg_date < (start_time - 30):
+                            # Il messaggio è vecchio di oltre 30 secondi rispetto all'avvio del server: ignorato
+                            continue
+                            
                         chat = message.get("chat")
                         chat_id = chat.get("id")
                         text = message.get("text", "").strip()
