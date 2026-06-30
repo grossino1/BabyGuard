@@ -130,8 +130,6 @@ async def start_telegram_polling():
         print("[TELEGRAM] Token non configurato o default. Polling disattivato.")
         return
         
-    print("[TELEGRAM] Avvio del bot in modalità polling con controllo temporale...")
-    
     # Rileva il timestamp di avvio del server (in UTC per consistenza con le API di Telegram)
     start_time = datetime.datetime.now(datetime.timezone.utc).timestamp()
     offset = 0
