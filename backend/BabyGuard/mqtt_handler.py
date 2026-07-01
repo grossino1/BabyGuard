@@ -128,7 +128,7 @@ async def perform_threshold_checks(db: AsyncSession, neonate: models.NeonateMode
                 }
             }
             
-            await send_push_notification(db, neonate, alert_msg)
+            await send_push_notification(db, neonate, alert_type, alert_msg, severity)
             if manager:
                 await manager.broadcast(alert_message)
             if sse_queue:
@@ -138,20 +138,20 @@ async def perform_threshold_checks(db: AsyncSession, neonate: models.NeonateMode
     hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
     if hr_val is not None and hr_val > 0:
         if hr_val < thresholds.hr_min:
-            await trigger_threshold_alert("ALLARME BRADICARDIA", f"⚠️ ALLARME BRADICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sotto la soglia minima di {thresholds.hr_min} BPM).", "critical")
+            await trigger_threshold_alert("Bradicardia ⚠️", f"Frequenza cardiaca: {hr_val:.1f} BPM (Sotto la soglia minima di {thresholds.hr_min} BPM).", "critical")
         elif hr_val > thresholds.hr_max:
-            await trigger_threshold_alert("ALLARME TACHICARDIA", f"⚠️ ALLARME TACHICARDIA\n\nFrequenza cardiaca: {hr_val:.1f} BPM (Sopra la soglia massima di {thresholds.hr_max} BPM).", "high")
+            await trigger_threshold_alert("Tachicardia ⚠️", f"Frequenza cardiaca: {hr_val:.1f} BPM (Sopra la soglia massima di {thresholds.hr_max} BPM).", "high")
 
     # 2. Breath Rate Check
     if br_val is not None and br_val > 0:
         if br_val < thresholds.br_min:
-            await trigger_threshold_alert("ALLARME RESPIRAZIONE DEBOLE", f"⚠️ RESPIRAZIONE DEBOLE\n\nFrequenza respiratoria: {br_val} atti/min (Sotto la soglia minima di {thresholds.br_min} atti/min).", "critical")
+            await trigger_threshold_alert("Respirazione Debole ⚠️", f"Frequenza respiratoria: {br_val} atti/min (Sotto la soglia minima di {thresholds.br_min} atti/min).", "critical")
         elif br_val > thresholds.br_max:
-            await trigger_threshold_alert("ALLARME IPERVENTILAZIONE", f"⚠️ IPERVENTILAZIONE\n\nFrequenza respiratoria: {br_val} atti/min (Sopra la soglia massima di {thresholds.br_max} atti/min).", "high")
+            await trigger_threshold_alert("Iperventilazione ⚠️", f"Frequenza respiratoria: {br_val} atti/min (Sopra la soglia massima di {thresholds.br_max} atti/min).", "high")
 
     # 3. Battery Check
     if soc is not None and soc <= 15:
-        await trigger_threshold_alert("ALLARME BATTERIA SCARICA", f"🪫 BATTERIA SCARICA\n\nLa batteria del dispositivo è al {soc}%. Collegare la maglietta alla carica.", "high")
+        await trigger_threshold_alert("Batteria Scarica 🪫", f"La batteria del dispositivo è al {soc}%. Collegare la maglietta alla carica.", "high")
 
 async def check_position_persistence(db: AsyncSession, neonate: models.NeonateModel, state: DeviceState, device_id: str, orientation: int):
     """
@@ -176,8 +176,8 @@ async def check_position_persistence(db: AsyncSession, neonate: models.NeonateMo
         else:
             elapsed = now - state.prone_start_time
             if elapsed >= 10:  # Finestra temporale di persistenza di 10 secondi
-                alert_type = "ALLARME POSIZIONE PRONA"
-                alert_msg = f"⚠️ POSIZIONE PRONA RILEVATA ({int(elapsed)}s)\n\nIl neonato è a pancia in giù da oltre 10 secondi. Si consiglia di rimetterlo in posizione supina (a pancia in su) per prevenire il rischio SIDS."
+                alert_type = "Posizione Prona ⚠️"
+                alert_msg = f"Il neonato è a pancia in giù da oltre 10 secondi. Si consiglia di rimetterlo in posizione supina (a pancia in su) per prevenire il rischio SIDS."
                 severity = "critical"
                 
                 last_sent = getattr(state, "last_position_alert_time", 0)
@@ -200,7 +200,7 @@ async def check_position_persistence(db: AsyncSession, neonate: models.NeonateMo
                         }
                     }
                     
-                    await send_push_notification(db, neonate, alert_msg)
+                    await send_push_notification(db, neonate, alert_type, alert_msg, severity)
                     if manager:
                         await manager.broadcast(alert_message)
                     if sse_queue:
@@ -241,18 +241,18 @@ async def check_temperature_trend(db: AsyncSession, neonate: models.NeonateModel
     # Soglia Ipertermia (default 37.5°C)
     if temp_avg > thresholds.temp_max:
         if trend_positive:
-            alert_type = "Hyperthermia"
-            alert_msg = f"🔥 ALLARME SURRISCALDAMENTO\n\nTemperatura cutanea media: {temp_avg:.1f}°C (Soglia max: {thresholds.temp_max:.1f}°C). Rilevato un trend in costante crescita. Rischio di ipertermia e aumento del rischio SIDS."
+            alert_type = "Ipertermia 🔥"
+            alert_msg = f"Temperatura cutanea media: {temp_avg:.1f}°C (Soglia max: {thresholds.temp_max:.1f}°C). Rilevato un trend in costante crescita. Rischio di ipertermia e aumento del rischio SIDS."
             severity = "critical"
         else:
-            alert_type = "Temp"
-            alert_msg = f"🌡️ TEMPERATURA ELEVATA\n\nTemperatura cutanea media nell'ultimo minuto: {temp_avg:.1f}°C. Superata la soglia di sicurezza di {thresholds.temp_max:.1f}°C."
+            alert_type = "Temperatura Elevata 🌡️"
+            alert_msg = f"Temperatura cutanea media nell'ultimo minuto: {temp_avg:.1f}°C. Superata la soglia di sicurezza di {thresholds.temp_max:.1f}°C."
             severity = "high"
             
     # Soglia Ipotermia (default 36.0°C)
     elif temp_avg < thresholds.temp_min:
-        alert_type = "Hypothermia"
-        alert_msg = f"❄️ ALLARME IPOTERMIA\n\nTemperatura cutanea media: {temp_avg:.1f}°C. Discesa sotto la soglia di sicurezza di {thresholds.temp_min:.1f}°C."
+        alert_type = "Ipotermia ❄️"
+        alert_msg = f"Temperatura cutanea media: {temp_avg:.1f}°C. Discesa sotto la soglia di sicurezza di {thresholds.temp_min:.1f}°C."
         severity = "high"
 
     if alert_type:
@@ -276,7 +276,7 @@ async def check_temperature_trend(db: AsyncSession, neonate: models.NeonateModel
                 }
             }
             
-            await send_push_notification(db, neonate, alert_msg)
+            await send_push_notification(db, neonate, alert_type, alert_msg, severity)
             if manager:
                 await manager.broadcast(alert_message)
             if sse_queue:
@@ -353,13 +353,13 @@ async def check_fall_detection(db: AsyncSession, neonate: models.NeonateModel, s
         if free_fall_end != -1:
             if i - free_fall_end <= max_impact_samples: # Controllo impatto entro 1s dalla fine della free-fall
                 if svm > 1.8:
-                    alert_type = "Fall"
+                    alert_type = "Caduta (SUPC) 🚨"
                     peak_val = max(peak_val, svm)
             else:
                 free_fall_end = -1
 
     if alert_type:
-        alert_msg = f"🚨 ALLARME CADUTA\n\nRilevata fase di caduta libera seguita da impatto ({peak_val:.1f}g). Verificare immediatamente il neonato!"
+        alert_msg = f"Rilevata fase di caduta libera seguita da impatto ({peak_val:.1f}g). Verificare immediatamente il neonato!"
         now = time.time()
         last_sent = getattr(state, "last_fall_alert_time", 0)
         
@@ -383,7 +383,7 @@ async def check_fall_detection(db: AsyncSession, neonate: models.NeonateModel, s
                 }
             }
             
-            await send_push_notification(db, neonate, alert_msg)
+            await send_push_notification(db, neonate, alert_type, alert_msg, severity)
             if manager:
                 await manager.broadcast(alert_message)
         if sse_queue:
@@ -406,8 +406,8 @@ async def check_periodic_breathing(db: AsyncSession, neonate: models.NeonateMode
     if len(short_gaps) < PERIODIC_MIN_EVENTS:
         return
 
-    alert_type = "PeriodicBreathing"
-    alert_msg = f"⚠️ RESPIRO PERIODICO\n\nRilevate {len(short_gaps)} pause respiratorie brevi (<10s) ravvicinate. Pattern di instabilita' respiratoria da monitorare."
+    alert_type = "Respiro Periodico ⚠️"
+    alert_msg = f"Rilevate {len(short_gaps)} pause respiratorie brevi (<10s) ravvicinate. Pattern di instabilita' respiratoria da monitorare."
     severity = "medium"
 
     now = time.time()
@@ -431,7 +431,7 @@ async def check_periodic_breathing(db: AsyncSession, neonate: models.NeonateMode
             }
         }
 
-        await send_push_notification(db, neonate, alert_msg)
+        await send_push_notification(db, neonate, alert_type, alert_msg, severity)
         if manager:
             await manager.broadcast(alert_message)
         if sse_queue:
@@ -458,8 +458,8 @@ async def check_bradycardia_extreme(db: AsyncSession, neonate: models.NeonateMod
             return
         elapsed = now - state.brady_run_start
         if elapsed >= 10:
-            alert_type = "BradycardiaExtreme"
-            alert_msg = f"🚨 BRADICARDIA SOSTENUTA ({int(elapsed)}s)\n\nFrequenza cardiaca sotto {brady_bpm} BPM (attuale: {hr_val:.1f} BPM) da oltre 10 secondi. Evento critico secondo le linee guida ALTE. Intervenire."
+            alert_type = "Bradicardia Estrema 🚨"
+            alert_msg = f"Frequenza cardiaca sotto {brady_bpm} BPM (attuale: {hr_val:.1f} BPM) da oltre 10 secondi. Evento critico secondo le linee guida ALTE. Intervenire."
             severity = "critical"
 
             last_sent = getattr(state, "last_brady_alert_time", 0)
@@ -482,7 +482,7 @@ async def check_bradycardia_extreme(db: AsyncSession, neonate: models.NeonateMod
                     }
                 }
 
-                await send_push_notification(db, neonate, alert_msg)
+                await send_push_notification(db, neonate, alert_type, alert_msg, severity)
                 if manager:
                     await manager.broadcast(alert_message)
                 if sse_queue:
@@ -517,8 +517,7 @@ async def mqtt_loop():
         except Exception as e:
             print(f"MQTT Connection error: {e}. Retrying in 5 seconds...")
             await asyncio.sleep(5)
-
-async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel, alert_msg: str, severity: str = "critical"):
+async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel, alert_type: str, alert_msg: str, severity: str = "critical"):
     """
     Gestisce l'invio delle notifiche di allarme.
     Invia l'avviso via Telegram (metodo primario e attivo) e tenta l'invio push remoto
@@ -529,7 +528,7 @@ async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel,
     try:
         # Invia la notifica via Telegram (Attiva)
         try:
-            await telegram_bot.notify_users_via_telegram(db, neonate, alert_msg, severity)
+            await telegram_bot.notify_users_via_telegram(db, neonate, alert_type, alert_msg, severity)
         except Exception as te:
             print(f"[TELEGRAM ERROR] Errore invio notifica Telegram: {te}")
 
@@ -560,8 +559,8 @@ async def send_push_notification(db: AsyncSession, neonate: models.NeonateModel,
                 messages.append({
                     "to": token,
                     "sound": "default",
-                    "title": f"BabyGuard Alert: {neonate.first_name} {neonate.last_name}",
-                    "body": alert_msg,
+                    "title": f"Babyguard Alert:{neonate.first_name} {neonate.last_name}",
+                    "body": f"{alert_type}\n\n{alert_msg}",
                     "data": {
                         "screen": "home",
                         "neonate_id": neonate.id
@@ -600,8 +599,8 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
     severity = "critical"
 
     if dt >= grave_threshold:
-        alert_type = "ALLARME APNEA GRAVE (SIDS)"
-        alert_msg = f"🚨 ALLARME APNEA GRAVE (SIDS)\n\nAssenza di respirazione rilevata da oltre {grave_threshold}s ({int(dt)}s). Stimolare immediatamente il neonato!"
+        alert_type = "Apnea Grave 🚨"
+        alert_msg = f"Assenza di respirazione rilevata da oltre {grave_threshold} secondi. Stimolare immediatamente il neonato!"
         severity = "critical"
     elif dt >= 10:
         # Check for bradycardia (EMA of HR < 100) or hypotonia (variance < 8000)
@@ -613,14 +612,14 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
             has_bradycardia = True
 
         if has_bradycardia or has_hypotonia:
-            alert_type = "EMERGENZA CLINICA ALTE"
+            alert_type = "Emergenza ALTE 🚨"
             reasons = []
             if has_bradycardia:
                 hr_val = state.latest_hr_ema if state.latest_hr_ema is not None else state.latest_hr
                 reasons.append(f"bradicardia (Battito: {hr_val:.1f} BPM)")
             if has_hypotonia:
                 reasons.append(f"ipotonia (tono muscolare ridotto)")
-            alert_msg = f"🚨 EMERGENZA CLINICA ALTE\n\nApnea sintomatica ({int(dt)}s) accompagnata da:\n" + "\n".join([f"• {r}" for r in reasons]) + "\n\nIntervenire immediatamente!"
+            alert_msg = f"Apnea sintomatica da oltre {int(dt)} secondi accompagnata da:\n" + "\n".join([f"• {r}" for r in reasons]) + "\n\nIntervenire immediatamente!"
             severity = "critical"
 
     if alert_type:
@@ -633,7 +632,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
         should_send = False
         if now - last_apnea_time > 30:
             should_send = True
-        elif alert_type == "ALLARME APNEA GRAVE (SIDS)" and last_apnea_type == "EMERGENZA CLINICA ALTE":
+        elif alert_type == "Apnea Grave 🚨" and last_apnea_type == "Emergenza ALTE 🚨":
             should_send = True
 
         if should_send:
@@ -657,7 +656,7 @@ async def check_apnea_conditions(db: AsyncSession, neonate: models.NeonateModel,
                 }
             }
 
-            await send_push_notification(db, neonate, alert_msg)
+            await send_push_notification(db, neonate, alert_type, alert_msg, severity)
 
             if manager:
                 await manager.broadcast(alert_message)
@@ -704,8 +703,8 @@ async def apnea_monitor_loop():
                             state.is_online = False
                             if now - state.last_offline_alert_time > 30:
                                 state.last_offline_alert_time = now
-                                alert_type = "Connection"
-                                alert_msg = f"🔌 DISPOSITIVO OFFLINE: La maglietta intelligente di {neonate.first_name} {neonate.last_name} si è disconnessa o spenta."
+                                alert_type = "Disconnessione ⚠️"
+                                alert_msg = f"La maglietta intelligente si è disconnessa o spenta."
                                 severity = "medium"
                                 
                                 db_alert = await crud.create_alert(db, neonate.id, alert_type, alert_msg, severity)
@@ -724,7 +723,7 @@ async def apnea_monitor_loop():
                                         "is_resolved": bool(db_alert.is_resolved)
                                     }
                                 }
-                                await send_push_notification(db, neonate, alert_msg, severity)
+                                await send_push_notification(db, neonate, alert_type, alert_msg, severity)
                                 if manager:
                                     await manager.broadcast(alert_message)
                                 if sse_queue:
@@ -735,15 +734,34 @@ async def apnea_monitor_loop():
                         if not state.is_online:
                             state.is_online = True
                             print(f"[CONNECTION] {neonate.first_name} tornato ONLINE.")
-                            # Risolve automaticamente l'allarme di disconnessione precedente se presente
-                            alert_message = {
-                                "event": "alert_resolved",
-                                "neonate_id": neonate.id,
-                                "device_id": device_id,
-                                "type": "Connection"
-                            }
-                            if manager:
-                                await manager.broadcast(alert_message)
+                            # Risolve automaticamente l'allarme di disconnessione precedente se presente nel database
+                            try:
+                                stmt = select(models.AlertModel).where(
+                                    models.AlertModel.neonate_id == neonate.id,
+                                    models.AlertModel.type.in_(["Disconnessione ⚠️", "Connection"]),
+                                    models.AlertModel.is_resolved == 0
+                                )
+                                res_alert = await db.execute(stmt)
+                                active_disconnect_alert = res_alert.scalars().first()
+                                if active_disconnect_alert:
+                                    active_disconnect_alert.is_resolved = 1
+                                    await db.commit()
+                                    
+                                    # Sincronizza su InfluxDB
+                                    influx_manager.write_alert(neonate.device_id, active_disconnect_alert.type, active_disconnect_alert.message, active_disconnect_alert.severity, 1)
+                                    
+                                    alert_message = {
+                                        "event": "alert_resolved",
+                                        "alert_id": active_disconnect_alert.id,
+                                        "neonate_id": neonate.id,
+                                        "device_id": device_id
+                                    }
+                                    if manager:
+                                        await manager.broadcast(alert_message)
+                                    if sse_queue:
+                                        await sse_queue.put(alert_message)
+                            except Exception as ex_resolve:
+                                print(f"Error auto-resolving disconnect alert: {ex_resolve}")
                     
                     # 3. Update state from InfluxDB instead of MQTT!
                     # Get temperature

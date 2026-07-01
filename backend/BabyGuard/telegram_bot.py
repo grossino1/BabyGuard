@@ -168,7 +168,7 @@ async def start_telegram_polling():
             
             await asyncio.sleep(2)
 
-async def notify_users_via_telegram(db, neonate, alert_msg: str, severity: str):
+async def notify_users_via_telegram(db, neonate, alert_type: str, alert_msg: str, severity: str):
     """Invia notifiche via Telegram a tutti gli utenti associati al neonato (Genitore ed eventuale Medico)."""
     # Cerca il genitore
     parent_chat_id = None
@@ -192,12 +192,9 @@ async def notify_users_via_telegram(db, neonate, alert_msg: str, severity: str):
         print(f"[TELEGRAM] Nessun utente associato con chat_id abilitato per il neonato {neonate.first_name} {neonate.last_name}")
         return
         
-    emoji = "🔴" if severity.lower() == "critical" else "⚠️"
     message = (
-        f"{emoji} <b>ALLERTA BABYGUARD ({severity.upper()})</b> {emoji}\n\n"
-        f"<b>Neonato:</b> {neonate.first_name} {neonate.last_name}\n"
-        f"<b>Messaggio:</b> {alert_msg}\n"
-        f"<b>Ora:</b> {datetime.datetime.now().strftime('%H:%M:%S del %d/%m/%Y')}"
+        f"Babyguard Alert:{neonate.first_name} {neonate.last_name}\n"
+        f"{alert_type} \n\n {alert_msg}"
     )
     
     for chat_id in chat_ids:

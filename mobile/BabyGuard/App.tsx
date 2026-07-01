@@ -148,7 +148,7 @@ export default function App() {
         return match[1];
       }
     }
-    return '192.168.2.60';
+    return '172.20.10.5';
   };
 
   const [backendIp, setBackendIp] = useState(getDefaultIp());
@@ -780,8 +780,8 @@ export default function App() {
               // Notifica locale immediata
               Notifications.scheduleNotificationAsync({
                 content: {
-                  title: `🚨 Allerta BabyGuard - ${msg.alert.type.toUpperCase()}`,
-                  body: `${selectedNeonate.first_name} ${selectedNeonate.last_name}: ${msg.alert.message}`,
+                  title: `Babyguard Alert:${selectedNeonate.first_name} ${selectedNeonate.last_name}`,
+                  body: `${msg.alert.type}\n\n${msg.alert.message}`,
                   sound: true,
                   priority: Notifications.AndroidNotificationPriority.MAX,
                 },
@@ -1679,7 +1679,7 @@ export default function App() {
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Image
-            source={require('./assets/LogoBabyGuard.jpeg')}
+            source={require('./assets/logo2.png')}
             style={{ width: 40, height: 40, borderRadius: 20, marginRight: 10 }}
           />
           <View>
@@ -1798,8 +1798,8 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
           >
             <Image
-              source={require('./assets/LogoBabyGuard.jpeg')}
-              style={{ width: 120, height: 120, borderRadius: 60, alignSelf: 'center', marginBottom: 20 }}
+              source={require('./assets/logo2.png')}
+              style={{ width: 120, height: 120, alignSelf: 'center', marginBottom: 20, resizeMode: 'contain' }}
             />
             <View style={styles.authCard}>
               <Text style={styles.authTitle}>{isRegistering ? 'Crea Account' : 'Accedi'}</Text>
@@ -2076,7 +2076,7 @@ export default function App() {
               <View style={[styles.babyBioContainer, { flexWrap: 'wrap' }]}>
                 <View style={styles.bioChip}>
                   <Text style={styles.bioChipLabel}>Sesso</Text>
-                  <Text style={styles.bioChipValue}>{selectedNeonate.gender === 'F' ? '🌸 F' : '💎 M'}</Text>
+                  <Text style={styles.bioChipValue}>{selectedNeonate.gender === 'F' ? 'F' : 'M'}</Text>
                 </View>
                 <View style={styles.bioChip}>
                   <Text style={styles.bioChipLabel}>Età</Text>
@@ -2158,7 +2158,7 @@ export default function App() {
                         {renderCardFront('❤️', liveData.heartrate || '--', 'BPM', 'Battito Cardiaco')}
                       </TouchableOpacity>
                     </Animated.View>
-                    <Animated.View style={[styles.liveCard, styles.cardHr, styles.cardFlipped, { transform: [{ rotateY: backInterpolateHr }], opacity: backOpacityHr, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                    <Animated.View pointerEvents={flippedHr ? 'auto' : 'none'} style={[styles.liveCard, styles.cardHr, styles.cardFlipped, { transform: [{ rotateY: backInterpolateHr }], opacity: backOpacityHr, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
                       {renderCardBack('Storico BPM', hrHistory, 'BPM', () => handleFlipHr(false))}
                     </Animated.View>
                   </View>
@@ -2180,7 +2180,7 @@ export default function App() {
                         {renderCardFront('🌡️', liveData.temperature !== undefined ? `${liveData.temperature.toFixed(1)}` : '--', '°C', 'Temperatura')}
                       </TouchableOpacity>
                     </Animated.View>
-                    <Animated.View style={[styles.liveCard, styles.cardTemp, styles.cardFlipped, { transform: [{ rotateY: backInterpolateTemp }], opacity: backOpacityTemp, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                    <Animated.View pointerEvents={flippedTemp ? 'auto' : 'none'} style={[styles.liveCard, styles.cardTemp, styles.cardFlipped, { transform: [{ rotateY: backInterpolateTemp }], opacity: backOpacityTemp, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
                       {renderCardBack('Storico Temp', tempHistory, '°C', () => handleFlipTemp(false))}
                     </Animated.View>
                   </View>
@@ -2202,7 +2202,7 @@ export default function App() {
                         {renderCardFront('🫁', liveData.breathrate || '--', 'atti/min', 'Respiro')}
                       </TouchableOpacity>
                     </Animated.View>
-                    <Animated.View style={[styles.liveCard, styles.cardBr, styles.cardFlipped, { transform: [{ rotateY: backInterpolateBr }], opacity: backOpacityBr, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                    <Animated.View pointerEvents={flippedBr ? 'auto' : 'none'} style={[styles.liveCard, styles.cardBr, styles.cardFlipped, { transform: [{ rotateY: backInterpolateBr }], opacity: backOpacityBr, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
                       {renderCardBack('Storico Respiro', brHistory, 'atti/m', () => handleFlipBr(false))}
                     </Animated.View>
                   </View>
@@ -2224,7 +2224,7 @@ export default function App() {
                         {renderCardFront('🧘', liveData.orientation !== undefined ? getOrientationText(liveData.orientation) : '--', '', 'Postura Sonno', true)}
                       </TouchableOpacity>
                     </Animated.View>
-                    <Animated.View style={[styles.liveCard, styles.cardPos, styles.cardFlipped, { transform: [{ rotateY: backInterpolatePos }], opacity: backOpacityPos, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
+                    <Animated.View pointerEvents={flippedPos ? 'auto' : 'none'} style={[styles.liveCard, styles.cardPos, styles.cardFlipped, { transform: [{ rotateY: backInterpolatePos }], opacity: backOpacityPos, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, marginBottom: 0 }]}>
                       {renderCardBack('Storico Postura', posHistory, '', () => handleFlipPos(false))}
                     </Animated.View>
                   </View>
@@ -2243,16 +2243,16 @@ export default function App() {
                   width={Dimensions.get('window').width - 64}
                   height={170}
                   chartConfig={{
-                    backgroundColor: '#12293C',
-                    backgroundGradientFrom: '#12293C',
-                    backgroundGradientTo: '#12293C',
+                    backgroundColor: C.surface,
+                    backgroundGradientFrom: C.surface,
+                    backgroundGradientTo: C.surface,
                     decimalPlaces: 1,
-                    color: (opacity = 1) => `rgba(71, 193, 176, ${opacity})`, // Verde menta del logo
-                    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.7})`, // Testo bianco trasparente
+                    color: (opacity = 1) => `rgba(112, 181, 190, ${opacity})`, // mint (pigiamino azzurro)
+                    labelColor: (opacity = 1) => `rgba(30, 59, 90, ${opacity})`, // text (blu scuro)
                     style: { borderRadius: 16 },
                     propsForBackgroundLines: {
                       strokeWidth: 1,
-                      stroke: '#1F3E57', // Grigio-blu dei bordi
+                      stroke: C.border, // bordi azzurrini
                       strokeDasharray: '3', // Tratteggiato moderno
                     },
                     propsForLabels: {
@@ -2719,13 +2719,13 @@ export default function App() {
                   style={[styles.roleTab, babyGender === 'M' && styles.roleTabActive]}
                   onPress={() => setBabyGender('M')}
                 >
-                  <Text style={[styles.roleTabText, babyGender === 'M' && styles.roleTabTextActive]}>💎 Maschio</Text>
+                  <Text style={[styles.roleTabText, babyGender === 'M' && styles.roleTabTextActive]}>Maschio</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.roleTab, babyGender === 'F' && styles.roleTabActive]}
                   onPress={() => setBabyGender('F')}
                 >
-                  <Text style={[styles.roleTabText, babyGender === 'F' && styles.roleTabTextActive]}>🌸 Femmina</Text>
+                  <Text style={[styles.roleTabText, babyGender === 'F' && styles.roleTabTextActive]}>Femmina</Text>
                 </TouchableOpacity>
               </View>
 
@@ -3019,37 +3019,32 @@ export default function App() {
   );
 }
 
-// =====================================================================
-//  DESIGN SYSTEM  ·  BabyGuard IoMT  ·  Premium Medical Dark Theme
-//  Palette centralizzata + helper per ombre morbide (iOS + Android).
-//  Nessuna logica: solo token visivi riutilizzati nello StyleSheet.
-// =====================================================================
 const C = {
-  bg: '#081522',           // sfondo app, profondo
-  surface: '#12293C',      // card principali (coincide con lo sfondo del grafico ECG)
-  panel: '#0F2434',        // pannelli/chip secondari
-  field: '#0A1B2A',        // input
-  border: '#1C3A52',       // bordi neutri
-  borderSoft: 'rgba(71,193,176,0.16)', // bordi semitrasparenti per profondità
-  mint: '#47C1B0',         // accento primario (verde menta del logo)
-  mintBright: '#5FD8C5',
-  mintTint: 'rgba(71,193,176,0.12)',
-  red: '#FF5C6C',          // critico, soffuso
-  redTint: 'rgba(255,92,108,0.10)',
-  redBorder: 'rgba(255,92,108,0.28)',
-  orange: '#FFB25A',       // allarme alto, caldo
-  orangeTint: 'rgba(255,178,90,0.10)',
-  orangeBorder: 'rgba(255,178,90,0.28)',
+  bg: '#F2F8F8',           // sfondo app, chiaro (ispirato allo scudo)
+  surface: '#FFFFFF',      // card principali (bianco pulito)
+  panel: '#EBF4F4',        // pannelli/chip secondari
+  field: '#FFFFFF',        // input
+  border: '#D0E6E6',       // bordi neutri azzurrini
+  borderSoft: '#E3F1F3', // bordi semitrasparenti
+  mint: '#70B5BE',         // accento primario (azzurro del pigiamino)
+  mintBright: '#A1D5D8',   // celeste chiaro (colore scudo)
+  mintTint: '#EAF4F5',
+  red: '#FF6B6B',          // critico
+  redTint: '#FFF0F0',
+  redBorder: '#FFD6D6',
+  orange: '#FEE180',       // allarme alto (giallo luna)
+  orangeTint: '#FFF8D9',
+  orangeBorder: '#FDF0A6',
   green: '#54CF7B',        // stato ok
-  greenTint: 'rgba(84,207,123,0.10)',
-  greenBorder: 'rgba(84,207,123,0.28)',
-  blue: '#4FA9E2',         // info
-  blueTint: 'rgba(79,169,226,0.10)',
-  blueBorder: 'rgba(79,169,226,0.28)',
-  text: '#EEF4F9',         // testo primario
-  textDim: '#9DB1C1',      // testo secondario
-  textMuted: '#647C8E',    // testo terziario / placeholder
-  onAccent: '#04181C',     // testo su sfondo menta
+  greenTint: '#EEFAEF',
+  greenBorder: '#DBF4E2',
+  blue: '#A1D5D8',         // info (celeste scudo)
+  blueTint: '#ECF6F7',
+  blueBorder: '#D9EEEF',
+  text: '#1E3B5A',         // testo primario (blu scuro dei contorni del logo)
+  textDim: '#4A7292',      // testo secondario
+  textMuted: '#89A8C2',    // testo terziario / placeholder
+  onAccent: '#FFFFFF',     // testo su sfondo accent
 };
 
 // Ombre morbide e diffuse (profondità senza durezza)
@@ -3061,14 +3056,15 @@ const softShadow = {
   elevation: 9,
 };
 const subtleShadow = {
-  shadowColor: '#000000',
+  shadowColor: '#1A293A',
   shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.24,
-  shadowRadius: 10,
-  elevation: 5,
+  shadowOpacity: 0.08,
+  shadowRadius: 12,
+  elevation: 0,
 };
 
 const styles = StyleSheet.create({
+
   container: {
     flex: 1,
     backgroundColor: C.bg,
@@ -3088,7 +3084,7 @@ const styles = StyleSheet.create({
     ...subtleShadow,
   },
   headerTitle: {
-    fontSize: 21,
+    fontSize: 18,
     fontWeight: '800',
     color: C.mint,
     letterSpacing: 0.2,
@@ -3535,8 +3531,7 @@ const styles = StyleSheet.create({
     height: 130,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    ...subtleShadow,
+    borderWidth: 1, // Rimossi i bordi
   },
   cardHr: {
     backgroundColor: C.redTint,
@@ -3558,14 +3553,14 @@ const styles = StyleSheet.create({
     fontSize: 26,
   },
   cardVal: {
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: '800',
     color: C.text,
     marginVertical: 4,
     letterSpacing: -0.5,
   },
   cardValSmall: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '700',
     color: C.text,
     textAlign: 'center',
@@ -3592,6 +3587,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   cardTouchWrapper: {
+    flex: 1,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3622,7 +3619,7 @@ const styles = StyleSheet.create({
   },
   cardFrontHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
   },
@@ -3844,21 +3841,20 @@ const styles = StyleSheet.create({
   },
   alertItem: {
     borderLeftWidth: 4,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 14,
     marginBottom: 12,
   },
-  // Dual-purpose: sfondo alert + sfondo badge stato AHI (testo bianco) → tinte solide leggibili
   alertCritical: {
-    backgroundColor: '#391823',
+    backgroundColor: C.redTint,
     borderLeftColor: C.red,
   },
   alertHigh: {
-    backgroundColor: '#3A2916',
+    backgroundColor: 'C.orangeTint',
     borderLeftColor: C.orange,
   },
   alertNormal: {
-    backgroundColor: '#1C3A2C',
+    backgroundColor: 'C.greenTint',
     borderLeftColor: C.green,
   },
   alertHeaderRow: {
@@ -4194,3 +4190,4 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 })
+

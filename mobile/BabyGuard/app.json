@@ -4,11 +4,11 @@
     "slug": "BabyGuard",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/LogoBabyGuard.jpeg",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/LogoBabyGuard.jpeg",
+      "image": "./assets/logo2.png",
       "resizeMode": "contain",
       "backgroundColor": "#0d2537"
     },
@@ -19,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/LogoBabyGuard.jpeg",
+        "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#0d2537"
       },
       "edgeToEdgeEnabled": true,
@@ -28,7 +28,7 @@
       "googleServicesFile": "./google-services.json"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/logo.png"
     }
   }
 }
