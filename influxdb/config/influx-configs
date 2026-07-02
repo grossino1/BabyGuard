@@ -1,0 +1,20 @@
+[default]
+  url = "http://localhost:8086"
+  token = "VHKmLZuJVqWxdmEc0djF3mA1UTrYvNSYrHrJAz58cXn9g5DLUmvXMOMOqISFy0CsU4-QepolBSEra6aMSZ748g=="
+  org = "iomt-lab"
+  active = true
+# 
+# [eu-central]
+#   url = "https://eu-central-1-1.aws.cloud2.influxdata.com"
+#   token = "XXX"
+#   org = ""
+# 
+# [us-central]
+#   url = "https://us-central1-1.gcp.cloud2.influxdata.com"
+#   token = "XXX"
+#   org = ""
+# 
+# [us-west]
+#   url = "https://us-west-2-1.aws.cloud2.influxdata.com"
+#   token = "XXX"
+#   org = ""

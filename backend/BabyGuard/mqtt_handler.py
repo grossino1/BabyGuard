@@ -2,7 +2,6 @@ import asyncio
 import json
 import time
 import math
-import urllib.request
 import aiomqtt
 import traceback
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -802,9 +801,6 @@ async def apnea_monitor_loop():
 
                     # 4. Check clinical apnea & ALTE conditions
                     #    (apnea ora e' eta'-dipendente internamente via PCA)
-                    now = time.time()
-                    dt = now - state.last_breath_time
-                    
                     await check_apnea_conditions(db, neonate, state, device_id)
                     
                     # 5. Check position with persistence filter (Tp = 10s)

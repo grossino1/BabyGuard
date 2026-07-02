@@ -18,9 +18,24 @@ Il sistema si compone dei seguenti moduli integrati:
 
 ---
 
+## 📂 Struttura della Directory di Consegna
+
+Il progetto è organizzato nel seguente modo per la consegna:
+* 📂 **`backend/`**: Logica del server in Python (FastAPI, SQLite, algoritmi clinici).
+* 📂 **`mobile/`**: Codice sorgente dell'applicazione mobile in React Native (Expo).
+* 📂 **`nodered/`** & **`grafana/`**: File di configurazione, flussi ed provisioning per la visualizzazione delle dashboard cliniche.
+* 📂 **`documentazione/`**: Contiene la documentazione formale del progetto (Requisiti SRS, Design di Dettaglio DDD, Presentazione PDF, Proposta di Progetto).
+* 📂 **`video funzionamento app/`**: Video dimostrativi MP4 che mostrano l'associazione Telegram, la registrazione, l'interfaccia genitore e pediatra.
+* 📂 **`algoritmi e fonti/`**: I 12 PDF scientifici di riferimento clinico (linee guida SIN, ERC, WHO, ecc.) e la specifica degli algoritmi.
+* 📂 **`mosquitto/`**: File di configurazione del broker MQTT locale.
+* 📂 **`simulazioni/`**: Contiene gli script Python per la simulazione della maglietta intelligente in diversi scenari clinici (sano, critico, anomalo) e i testi di esempio dei messaggi MQTT.
+* 📂 **`hardware/`**: Contiene il codice MicroPython (`InvioTemperaturaNTC.py`) da caricare sulla scheda ESP32 reale per la lettura del sensore di temperatura cutanea.
+
+---
+
 ## 🛠️ Schema di Collegamento Hardware (Sensori NTC + ESP32)
 
-Per implementare la rilevazione della temperatura cutanea del neonato, viene utilizzato lo script MicroPython [InvioTemperaturaNTC.py](file:///Users/jackross/iomt-lab/InvioTemperaturaNTC.py) caricato su un **ESP32**.
+Per implementare la rilevazione della temperatura cutanea del neonato, viene utilizzato lo script MicroPython [InvioTemperaturaNTC.py](file:///Users/jackross/iomt-lab/hardware/InvioTemperaturaNTC.py) caricato su un **ESP32**.
 
 ### Componenti Necessari
 * 1x Scheda ESP32 (es. NodeMCU o ESP32-WROOM-32)
@@ -52,48 +67,60 @@ Per ciascun sensore NTC, è necessario configurare un partitore di tensione per 
 
 ## 🚀 Configurazione ed Avvio del Software
 
-### 1. Avviare l'Infrastruttura Locale (Docker)
-Assicurarsi di avere Docker e Docker Compose installati, quindi posizionarsi nella cartella principale ed avviare tutti i servizi infrastrutturali locali:
+Per avviare ed eseguire i test del sistema completo BabyGuard, seguire questi semplici passi in ordine:
+
+### Passo 0: Configurazione Rete e File `.env`
+Assicurarsi che il proprio computer e lo smartphone siano connessi alla **stessa rete Wi-Fi (LAN)**. 
+Modificare il file `.env` (o `.env.local` nell'app mobile) specificando il corretto indirizzo IP locale del proprio computer, in modo che l'app mobile possa raggiungere il backend.
+
+---
+
+### Passo 1: Avvia l'Infrastruttura locale (Docker)
+Aprire una finestra del terminale nella cartella principale del progetto (`iomt-lab`) ed avviare i servizi infrastrutturali escludendo il container mobile (che verrà avviato localmente sul computer tramite Expo):
 ```bash
-docker-compose up -d --build
+docker compose up -d --build mosquitto nodered influxdb grafana backend
 ```
-Questo comando avvierà in background:
-* **Mosquitto** (porta `1883`)
-* **InfluxDB** (porta `8086`)
-* **Grafana** (porta `3000`)
-* **Node-RED** (porta `1880`)
-* **FastAPI Backend** (porta `8000`)
+*Questo comando compilerà e avvierà in background Mosquitto (broker), Node-RED, InfluxDB, Grafana e il backend FastAPI Python (il quale eseguirà automaticamente le migrazioni del database SQLite `backend/babyguard.db`).*
 
-Il backend eseguirà automaticamente le migrazioni del database SQLite locale (`backend/babyguard.db`).
+---
 
-### 2. Configurare ed Avviare l'App Mobile
-Spostarsi nella cartella dell'applicazione mobile ed installare le dipendenze:
+### Passo 2: Avvia l'App Mobile (Locale)
+Aprire una seconda finestra del terminale e posizionarsi nella cartella del frontend mobile per installare le dipendenze (se è il primo avvio) ed avviare il server di sviluppo Expo:
 ```bash
 cd mobile/BabyGuard
-npm install
+# Se è il primo avvio, lanciare: npm install
+npx expo start --go --lan
 ```
-Avviare il server di sviluppo Expo Go:
+**Cosa fare sullo smartphone:**
+1. Aprire l'applicazione **Expo Go** (disponibile su Google Play Store e Apple App Store).
+2. Inquadrare il **QR Code** stampato sul terminale con la fotocamera per caricare l'applicazione.
+3. Se necessario, è possibile inserire manualmente l'indirizzo IP locale visualizzato a terminale.
+
+---
+
+### Passo 3: Avvia il Simulatore dei Dati
+Per simulare l'invio delle telemetrie fisiologiche dei neonati dalle magliette, aprire una terza finestra del terminale nella cartella principale del progetto (`iomt-lab`) ed eseguire lo script all'interno della cartella `simulazioni`:
 ```bash
-npm run dev
+python3 simulazioni/simulate_anomalous.py
 # oppure
-npx expo start
+cd simulazioni && python3 simulate_anomalous.py
 ```
-Inquadrare il QR code generato tramite l'app **Expo Go** sul proprio smartphone (iOS o Android) per visualizzare l'applicazione. 
-* *Nota*: Assicurarsi che lo smartphone sia connesso alla **stessa rete Wi-Fi** del computer che esegue il backend. Inserire l'indirizzo IP del computer nella configurazione iniziale dell'applicazione se richiesto.
+*Questo script simulerà a rotazione tutti gli scenari clinici (apnea, bradicardia, febbre, cadute) per verificare all'istante il funzionamento degli allarmi sull'app e su Telegram.*
 
-### 3. Configurare ed Avviare il Bot Telegram
+---
+
+### 📲 Configurazione Bot Telegram (Opzionale)
 Il bot Telegram è preconfigurato per utilizzare l'account demo `@BabyGuardNotifyBot`.
-* Per avviare il bot in locale (se non si usa Docker per il backend), eseguire:
-  ```bash
-  python -m backend.BabyGuard.telegram_bot
-  ```
-* Se si desidera utilizzare il proprio bot Telegram:
-  1. Creare un bot tramite `@BotFather` su Telegram e ottenere il **Token API**.
-  2. Modificare il file `.env` inserendo `TELEGRAM_BOT_TOKEN=il_tuo_token_qui`.
-  3. Riavviare the backend.
+Se si desidera utilizzare il proprio bot Telegram:
+1. Creare un bot tramite `@BotFather` su Telegram e ottenere il **Token API**.
+2. Modificare il file `.env` inserendo `TELEGRAM_BOT_TOKEN=il_tuo_token_qui`.
+3. Riavviare il backend di Docker.
 
-### 4. Configurare l'ESP32 (MicroPython)
-1. Aprire il file [InvioTemperaturaNTC.py](file:///Users/jackross/iomt-lab/InvioTemperaturaNTC.py).
+---
+
+### 🔧 Configurazione dell'ESP32 Reale (MicroPython)
+Se si collegano i sensori hardware reali:
+1. Aprire il file [InvioTemperaturaNTC.py](file:///Users/jackross/iomt-lab/hardware/InvioTemperaturaNTC.py).
 2. Modificare le variabili in testa al file con le credenziali della propria rete Wi-Fi locale ed il Broker MQTT:
    ```python
    WIFI_SSID = 'Nome_Tua_Rete_WiFi'
